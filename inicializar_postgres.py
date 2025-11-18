@@ -12,7 +12,27 @@ import sys
 from pathlib import Path
 from database_connector import DatabaseConnector
 
-def ejecutar_archivo_sql(db, archivo_sql):
+def convertir_sqlite_a_postgres(sql_content):
+    """Convierte sintaxis SQLite a PostgreSQL"""
+    # 1. AUTOINCREMENT → SERIAL
+    sql_content = sql_content.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
+    sql_content = sql_content.replace('AUTOINCREMENT', '')
+
+    # 2. Boolean: 0/1 → FALSE/TRUE
+    sql_content = sql_content.replace('DEFAULT 0', 'DEFAULT FALSE')
+    sql_content = sql_content.replace('DEFAULT 1', 'DEFAULT TRUE')
+
+    # 3. DATETIME → TIMESTAMP
+    sql_content = sql_content.replace('DATETIME DEFAULT CURRENT_TIMESTAMP', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+    sql_content = sql_content.replace('DATETIME', 'TIMESTAMP')
+
+    # 4. IF NOT EXISTS en CREATE INDEX
+    sql_content = sql_content.replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX IF NOT EXISTS')
+
+    return sql_content
+
+
+def ejecutar_archivo_sql(db, archivo_sql, convertir=False):
     """Ejecuta un archivo SQL completo"""
     print(f"\n📄 Ejecutando: {archivo_sql}")
 
@@ -23,17 +43,25 @@ def ejecutar_archivo_sql(db, archivo_sql):
     with open(archivo_sql, 'r', encoding='utf-8') as f:
         sql_content = f.read()
 
+    # Convertir SQLite a PostgreSQL si es necesario
+    if convertir:
+        sql_content = convertir_sqlite_a_postgres(sql_content)
+
     try:
-        # Dividir en statements individuales
-        statements = sql_content.split(';')
+        # Para schema_postgres.sql, ejecutar completo (tiene funciones con $$)
+        if 'postgres' in archivo_sql:
+            db.cursor.execute(sql_content)
+        else:
+            # Otros archivos: dividir por ; y ejecutar uno por uno
+            statements = sql_content.split(';')
 
-        for i, statement in enumerate(statements, 1):
-            statement = statement.strip()
-            if not statement:
-                continue
+            for statement in statements:
+                statement = statement.strip()
+                if not statement:
+                    continue
 
-            # Ejecutar statement
-            db.cursor.execute(statement)
+                # Ejecutar statement
+                db.cursor.execute(statement)
 
         db.conn.commit()
         print(f"   ✅ {archivo_sql} ejecutado correctamente")
@@ -221,7 +249,9 @@ def main():
     # Ejecutar cada archivo
     errores = []
     for archivo in archivos_sql:
-        if not ejecutar_archivo_sql(db, archivo):
+        # Convertir SQLite → PostgreSQL para todos excepto schema_postgres.sql
+        convertir = 'postgres' not in archivo
+        if not ejecutar_archivo_sql(db, archivo, convertir=convertir):
             errores.append(archivo)
 
     if errores:
