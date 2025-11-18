@@ -1,3 +1,17 @@
 quinto_sol.db
 __pycache__/
 *.db-journal
+
+# Environment variables (passwords)
+.env
+.env.*
+
+# Audio generado
+audio/
+
+# Backups
+backup_*.sql
+*.sql.gz
+
+# Estadísticas generadas
+ESTADISTICAS_MUNDO_*.md
