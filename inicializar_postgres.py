@@ -129,7 +129,7 @@ def poblar_datos_base(db):
 
     # Obtener IDs de dioses para referencias
     db.cursor.execute("SELECT id, nombre FROM dioses")
-    dioses_dict = {row[1]: row[0] for row in db.cursor.fetchall()}
+    dioses_dict = {row['nombre']: row['id'] for row in db.cursor.fetchall()}
 
     especies = [
         ('Humanos I', 'Primera oleada de humanos llegados por los portales en 1500', 'humano', 70, 90, 4, 7, None),
@@ -173,7 +173,7 @@ def poblar_datos_base(db):
     # 5. PUEBLOS Y CIUDADES (muestra)
     print("\n📋 Insertando Pueblos y Ciudades...")
     db.cursor.execute("SELECT id, nombre FROM civilizaciones")
-    civs_dict = {row[1]: row[0] for row in db.cursor.fetchall()}
+    civs_dict = {row['nombre']: row['id'] for row in db.cursor.fetchall()}
 
     ciudades = [
         ('Tenochtitlán', 'capital', civs_dict.get('Mexica de Obsidiana'), 50000, 50, 1521, None, 0, 0,

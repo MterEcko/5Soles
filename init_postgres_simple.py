@@ -133,10 +133,10 @@ def main():
     # 4. CIVILIZACIONES
     print("\n📋 Insertando Civilizaciones...")
     db.cursor.execute("SELECT id FROM dioses WHERE nombre = 'Huitzilopochtli'")
-    dios_mexica = db.cursor.fetchone()[0]
+    dios_mexica = db.cursor.fetchone()['id']
 
     db.cursor.execute("SELECT id FROM dioses WHERE nombre = 'Kukulkán'")
-    dios_maya = db.cursor.fetchone()[0]
+    dios_maya = db.cursor.fetchone()['id']
 
     civilizaciones = [
         ('Mexica de Obsidiana', 'Mexica de Obsidiana', dios_mexica, 'Guerrera y tecnológica', 1520),
@@ -156,7 +156,7 @@ def main():
     # 5. PUEBLOS
     print("\n📋 Insertando Ciudades...")
     db.cursor.execute("SELECT id FROM civilizaciones WHERE nombre = 'Mexica de Obsidiana'")
-    civ_mexica = db.cursor.fetchone()[0]
+    civ_mexica = db.cursor.fetchone()['id']
 
     ciudades = [
         ('Tenochtitlán', 'capital', civ_mexica, 50000, 50, 1521, None, 0, 0, 'Capital mexica'),
