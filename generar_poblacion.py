@@ -3,9 +3,9 @@
 Sistema de generación de población y genealogía para Portales del Quinto Sol
 """
 
-import sqlite3
 import random
 from typing import List, Tuple, Optional
+from database_connector import DatabaseConnector
 
 # Listas de nombres mesoamericanos
 NOMBRES_MASCULINOS = [
@@ -36,38 +36,49 @@ APELLIDOS = [
 ]
 
 class GeneradorGenealogico:
-    def __init__(self, db_path='quinto_sol.db'):
-        self.conn = sqlite3.connect(db_path)
-        self.cursor = self.conn.cursor()
+    def __init__(self):
+        self.db = DatabaseConnector()
+        self.conn = self.db.connect()
+        self.cursor = self.db.cursor
 
         # Cargar datos de referencia
         self.cargar_datos_referencia()
 
+    def execute(self, query, params=None):
+        """Wrapper para convertir placeholders ? a %s automáticamente"""
+        if '?' in query:
+            query = query.replace('?', '%s')
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor
+
     def cargar_datos_referencia(self):
         """Carga datos necesarios de la BD"""
         # Especies
-        self.cursor.execute("SELECT id, nombre FROM especies WHERE nombre = 'Humanos I'")
+        self.execute("SELECT id, nombre FROM especies WHERE nombre = 'Humanos I'")
         result = self.cursor.fetchone()
         self.humanos1_id = result[0] if result else None
 
         # Civilizaciones
-        self.cursor.execute("SELECT id, nombre FROM civilizaciones")
+        self.execute("SELECT id, nombre FROM civilizaciones")
         self.civilizaciones = {nombre: id for id, nombre in self.cursor.fetchall()}
 
         # Dioses
-        self.cursor.execute("SELECT id, nombre FROM dioses")
+        self.execute("SELECT id, nombre FROM dioses")
         self.dioses = {nombre: id for id, nombre in self.cursor.fetchall()}
 
         # Pueblos/Ciudades
-        self.cursor.execute("SELECT id, nombre, civilizacion_id FROM pueblos_ciudades")
+        self.execute("SELECT id, nombre, civilizacion_id FROM pueblos_ciudades")
         self.lugares = [(id, nombre, civ_id) for id, nombre, civ_id in self.cursor.fetchall()]
 
         # Oficios
-        self.cursor.execute("SELECT id, nombre, categoria FROM oficios")
+        self.execute("SELECT id, nombre, categoria FROM oficios")
         self.oficios = [(id, nombre, cat) for id, nombre, cat in self.cursor.fetchall()]
 
         # Habilidades
-        self.cursor.execute("SELECT id, nombre, categoria FROM habilidades")
+        self.execute("SELECT id, nombre, categoria FROM habilidades")
         self.habilidades = [(id, nombre, cat) for id, nombre, cat in self.cursor.fetchall()]
 
     def calcular_esperanza_vida(self, clase_social: str) -> int:
@@ -168,7 +179,7 @@ class GeneradorGenealogico:
 
         # Seleccionar apellido (heredado del padre si existe, sino aleatorio)
         if padre_id:
-            self.cursor.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
+            self.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
             result = self.cursor.fetchone()
             apellido = result[0] if result and result[0] else random.choice(APELLIDOS)
         else:
@@ -195,13 +206,14 @@ class GeneradorGenealogico:
         nivel_devoto = random.randint(1, 5)  # Inicial bajo
 
         # Insertar persona
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO personas (
                 nombre, apellido, especie_id, padre_id, madre_id, genero,
                 año_nacimiento, año_muerte, lugar_nacimiento_id, lugar_residencia_id,
                 civilizacion_id, clase_social, dios_patron_id, nivel_devoto,
                 es_npc, es_jugador, nivel
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
         ''', (
             nombre, apellido, self.humanos1_id, padre_id, madre_id, genero,
             año_nacimiento, año_muerte, lugar_id, lugar_id,
@@ -209,14 +221,15 @@ class GeneradorGenealogico:
             1, 0, 1
         ))
 
-        persona_id = self.cursor.lastrowid
+        result = self.cursor.fetchone()
+        persona_id = result['id'] if isinstance(result, dict) else result[0]
 
         # Asignar oficios
         oficios_ids = self.seleccionar_oficios(clase_social, genero)
         for i, oficio_id in enumerate(oficios_ids):
             es_principal = (i == 0)
             nivel_maestria = random.randint(1, 3)  # Inicial
-            self.cursor.execute('''
+            self.execute('''
                 INSERT INTO persona_oficios (persona_id, oficio_id, año_inicio, nivel_maestria, es_principal)
                 VALUES (?, ?, ?, ?, ?)
             ''', (persona_id, oficio_id, año_nacimiento + 15, nivel_maestria, es_principal))
@@ -225,7 +238,7 @@ class GeneradorGenealogico:
         habilidades_ids = self.seleccionar_habilidades(clase_social)
         for hab_id in habilidades_ids:
             nivel_dominio = random.randint(1, 3)  # Inicial
-            self.cursor.execute('''
+            self.execute('''
                 INSERT INTO persona_habilidades (persona_id, habilidad_id, año_adquisicion, nivel_dominio)
                 VALUES (?, ?, ?, ?)
             ''', (persona_id, hab_id, año_nacimiento + random.randint(10, 20), nivel_dominio))
@@ -275,7 +288,7 @@ class GeneradorGenealogico:
                 contador += 1
 
                 # Mostrar información
-                self.cursor.execute('''
+                self.execute('''
                     SELECT nombre_completo, clase_social
                     FROM personas WHERE id = ?
                 ''', (persona_id,))
@@ -291,20 +304,24 @@ class GeneradorGenealogico:
 
         if not lugar_id:
             # Usar el lugar de residencia de persona1
-            self.cursor.execute(
+            self.execute(
                 "SELECT lugar_residencia_id FROM personas WHERE id = ?",
                 (persona1_id,)
             )
             result = self.cursor.fetchone()
             lugar_id = result[0] if result else None
 
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO matrimonios (persona1_id, persona2_id, año_union, lugar_union_id)
             VALUES (?, ?, ?, ?)
+            RETURNING id
         ''', (persona1_id, persona2_id, año_union, lugar_id))
 
+        result = self.cursor.fetchone()
+        matrimonio_id = result['id'] if isinstance(result, dict) else result[0]
+
         self.conn.commit()
-        return self.cursor.lastrowid
+        return matrimonio_id
 
     def generar_hijos(self, padre_id: int, madre_id: int, año_matrimonio: int,
                      num_hijos: Optional[int] = None) -> List[int]:
@@ -316,7 +333,7 @@ class GeneradorGenealogico:
         hijos_ids = []
 
         # Obtener información de los padres
-        self.cursor.execute('''
+        self.execute('''
             SELECT civilizacion_id, lugar_residencia_id, año_muerte
             FROM personas WHERE id = ?
         ''', (madre_id,))
@@ -351,7 +368,7 @@ class GeneradorGenealogico:
             año_actual += random.randint(2, 4)
 
         # Actualizar contador de hijos en matrimonio
-        self.cursor.execute('''
+        self.execute('''
             UPDATE matrimonios
             SET hijos_totales = ?
             WHERE (persona1_id = ? AND persona2_id = ?)
@@ -368,7 +385,7 @@ class GeneradorGenealogico:
         print(f"{'='*60}\n")
 
         # Buscar personas solteras en edad de casarse (18-35 años)
-        self.cursor.execute('''
+        self.execute('''
             SELECT p.id, p.genero, p.año_nacimiento, p.civilizacion_id, p.nombre_completo
             FROM personas p
             WHERE p.id NOT IN (
@@ -470,8 +487,9 @@ class GeneradorGenealogico:
             año_actual = año_fin_generacion
 
         # Estadísticas finales
-        self.cursor.execute("SELECT COUNT(*) FROM personas")
-        total_personas = self.cursor.fetchone()[0]
+        self.execute("SELECT COUNT(*) FROM personas")
+        result = self.cursor.fetchone()
+        total_personas = result['count'] if isinstance(result, dict) else result[0]
 
         print(f"\n{'='*70}")
         print(f"ESTADÍSTICAS FINALES")
