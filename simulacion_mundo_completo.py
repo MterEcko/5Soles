@@ -64,8 +64,23 @@ class SimulacionMundoCompleto:
     def conectar(self):
         """Establece conexión a base de datos"""
         self.conn = self.db.connect()
-        self.cursor = self.conn.cursor
+        # DatabaseConnector ya creó cursor con conversión de placeholders
+        self.cursor = self.db.cursor
         print(f"✅ Conectado a base de datos")
+
+    def execute(self, query, params=None):
+        """
+        Wrapper para ejecutar queries con conversión automática de placeholders
+        SQLite usa ? | PostgreSQL usa %s
+        """
+        if self.db.db_type == 'postgres' and '?' in query:
+            query = query.replace('?', '%s')
+
+        if params:
+            self.execute(query, params)
+        else:
+            self.execute(query)
+        return self.cursor
 
     def verificar_prerequisitos(self) -> bool:
         """Verifica que todos los schemas y datos base existan"""
@@ -84,7 +99,7 @@ class SimulacionMundoCompleto:
         ]
 
         for tabla in tablas_requeridas:
-            self.cursor.execute(f"SELECT COUNT(*) FROM {tabla}")
+            self.execute(f"SELECT COUNT(*) FROM {tabla}")
             count = self.cursor.fetchone()[0]
             verificaciones.append((tabla, count > 0, count))
 
@@ -95,7 +110,7 @@ class SimulacionMundoCompleto:
             print(f"  {status} {tabla}: {count} registros")
 
         # Verificar población inicial
-        self.cursor.execute("SELECT COUNT(*) FROM personas WHERE año_nacimiento = ?", (self.año_inicio,))
+        self.execute("SELECT COUNT(*) FROM personas WHERE año_nacimiento = ?", (self.año_inicio,))
         pob_inicial = self.cursor.fetchone()[0]
         self.stats['poblacion_inicial'] = pob_inicial
 
@@ -183,7 +198,7 @@ class SimulacionMundoCompleto:
 
         # Verificar si ya existe tabla
         try:
-            self.cursor.execute("SELECT COUNT(*) FROM conversaciones_historicas")
+            self.execute("SELECT COUNT(*) FROM conversaciones_historicas")
             ya_existe = True
             count_existente = self.cursor.fetchone()[0]
             print(f"✅ Sistema de conversaciones ya existe: {count_existente:,} conversaciones")
@@ -207,7 +222,7 @@ class SimulacionMundoCompleto:
             sistema_conv.crear_schema_conversaciones()
 
         # Calcular conversaciones por año (basado en población)
-        self.cursor.execute("SELECT COUNT(*) FROM personas")
+        self.execute("SELECT COUNT(*) FROM personas")
         poblacion_total = self.cursor.fetchone()[0]
 
         # ~1 conversación por cada 500 personas por año (ajustable)
@@ -241,7 +256,7 @@ class SimulacionMundoCompleto:
     def _verificar_sistema(self, tabla: str, nombre: str):
         """Verifica que un sistema tenga datos"""
         try:
-            self.cursor.execute(f"SELECT COUNT(*) FROM {tabla}")
+            self.execute(f"SELECT COUNT(*) FROM {tabla}")
             count = self.cursor.fetchone()[0]
 
             if count > 0:
@@ -272,14 +287,14 @@ class SimulacionMundoCompleto:
         print("=" * 70)
 
         # Población final
-        self.cursor.execute(
+        self.execute(
             "SELECT COUNT(*) FROM personas WHERE año_nacimiento <= ? AND (año_muerte IS NULL OR año_muerte > ?)",
             (self.año_fin, self.año_fin)
         )
         self.stats['poblacion_final'] = self.cursor.fetchone()[0]
 
         # Poblaciones por especie
-        self.cursor.execute('''
+        self.execute('''
             SELECT e.nombre, COUNT(p.id)
             FROM especies e
             LEFT JOIN personas p ON p.especie_id = e.id
@@ -318,7 +333,7 @@ class SimulacionMundoCompleto:
 
         for nombre, query in queries.items():
             try:
-                self.cursor.execute(query)
+                self.execute(query)
                 estadisticas[nombre] = self.cursor.fetchone()[0]
             except:
                 estadisticas[nombre] = 0
@@ -433,7 +448,7 @@ class SimulacionMundoCompleto:
 
         for idx in indices:
             try:
-                self.cursor.execute(idx)
+                self.execute(idx)
                 print("  ✅ Índice creado")
             except:
                 print("  ⚠️  Índice ya existe o error")
