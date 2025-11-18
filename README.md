@@ -43,6 +43,9 @@ python3 generar_poblacion.py
 
 # Actualizar con idiomas y eventos vitales
 python3 actualizar_db.py
+
+# Actualizar con sistema de IA, personalidades y economía
+python3 actualizar_sistema_ia.py
 ```
 
 ### 2. Simular Historia Completa (Opcional)
@@ -60,7 +63,138 @@ python3 simular_historia_completa.py
 python3 consultas.py
 ```
 
+## 🧠 **NUEVO**: Sistema de IA Conversacional
+
+### Características de NPCs Inteligentes
+
+El sistema incluye NPCs con:
+- ✅ **34 rasgos de personalidad** (valiente, generoso, avaro, mentiroso, etc.)
+- ✅ **Sistema de necesidades** (comida, agua, materiales de trabajo, clientes)
+- ✅ **Memoria contextual** - Recuerdan interacciones pasadas
+- ✅ **Memoria heredada** - "Mi padre me mencionó sobre ti..."
+- ✅ **Diálogos adaptativos** - Responden según personalidad y contexto
+- ✅ **Sistema de trueques** - Economía basada en intercambio
+- ✅ **Paternidad incierta** - Prostituta con múltiples padres posibles
+- ✅ **Sucesión de oficios** - Hijos heredan talleres de padres
+- ✅ **Sistema de aprendices** - Maestros entrenan estudiantes
+
+### Ejemplo de Uso
+
+```python
+from modelo_ia_conversacional import SistemaConversacionalIA
+
+# Crear sistema
+sistema = SistemaConversacionalIA()
+
+# Conversar con un herrero
+npc = sistema.obtener_npc(herrero_id)
+saludo = npc.generar_saludo(jugador_id, año=1520)
+print(f"{npc.nombre}: {saludo}")
+
+# Comprar items
+respuesta = npc.generar_dialogo_comercio("Macuahuitl", cantidad=2)
+print(f"{npc.nombre}: {respuesta['respuesta']}")
+print(f"Precio: {respuesta['precio']} en trueque")
+
+# El NPC recuerda la transacción
+npc.registrar_transaccion(jugador_id, "Macuahuitl", 2, precio, 1520)
+```
+
+### Nuevos Oficios (53 total)
+
+**Científicos:**
+- Alquimista, Matemático, Filósofo, Astrónomo, Naturalista, Cartógrafo
+
+**Sociales:**
+- Prostituta/Prostituto, Cantinero, Bardo, Mensajero
+
+**Tecnológicos:**
+- Biomecánico, Sintetizador, Ingeniero de Glifos, Cultivador de Cristales
+
+**Guardianes:**
+- Guardián, Vigilante Nocturno, Guardaespaldas
+
+**Oscuros:**
+- Ladrón, Asesino, Contrabandista, Espía
+
+**Artesanos Especializados:**
+- Tatuador, Perfumista, Vidriero
+
 ## 📊 Estructura de la Base de Datos
+
+### Nuevas Tablas para IA
+
+#### **rasgos_personalidad** & **persona_personalidad**
+Rasgos de personalidad y su asignación a NPCs.
+
+```sql
+Categorías: temperamento, etica, social, mental, laboral, espiritual
+Ejemplos: Valiente, Honesto, Generoso, Avaro, Carismático, Cruel
+Intensidad: 1-10
+```
+
+#### **necesidades** & **persona_necesidades**
+Sistema de necesidades que afectan comportamiento.
+
+```sql
+Básicas: Comida, Agua, Descanso, Refugio
+Profesionales: Materiales de Trabajo, Herramientas, Clientes
+Sociales: Compañía, Reconocimiento, Amor
+```
+
+#### **items** & **persona_inventario**
+Items, recursos y inventarios de NPCs.
+
+```sql
+28 items: Comida, Armas, Armadura, Materiales, Herramientas
+Valores de trueque, peso, perecederos
+```
+
+#### **transacciones**
+Registro completo de comercio y trueques.
+
+```sql
+- Vendedor, Comprador, Items intercambiados
+- Precio acordado, satisfacción de ambas partes
+- Historial completo de economía
+```
+
+#### **memoria_npc**
+Memoria contextual para IA conversacional.
+
+```sql
+- Memorias de interacciones con jugadores
+- Importancia (1-10) - afecta si se recuerda
+- Emoción asociada (alegria, tristeza, ira)
+- Metadata con contexto adicional
+```
+
+#### **paternidad_posible**
+Sistema de paternidad múltiple/incierta.
+
+```sql
+- Hijo con madre conocida
+- Múltiples padres posibles con probabilidad %
+- Sistema de confirmación (ADN divino, rasgos, confesión)
+```
+
+#### **relaciones**
+Relaciones entre personas.
+
+```sql
+Tipos: amigo, enemigo, rival, mentor, aprendiz, cliente, amante
+Intensidad: 1-10
+Es recíproca: True/False
+```
+
+#### **sucesion_oficios** & **aprendices**
+Sistema de herencia y aprendizaje de oficios.
+
+```sql
+- Sucesión: padre → hijo
+- Aprendices: maestro → estudiante (sin relación familiar)
+- Nivel de maestría heredado/transferido
+```
 
 ### Tablas Principales
 
@@ -384,6 +518,60 @@ JOIN eras e ON ev.era_id = e.id
 ORDER BY ev.año;
 ```
 
+### Ejemplo 4: Historial Comercial de un NPC
+
+```sql
+SELECT * FROM historial_comercial
+WHERE vendedor = 'Ichtaca del Viento'
+ORDER BY año;
+```
+
+### Ejemplo 5: Líneas de Sucesión de Oficios
+
+```sql
+SELECT * FROM lineas_sucesion
+WHERE oficio = 'Herrero'
+ORDER BY año_sucesion;
+```
+
+## 🎮 Ejemplos Avanzados
+
+El proyecto incluye `ejemplos_avanzados.py` que demuestra:
+
+### 1. Paternidad Incierta
+
+```bash
+python3 ejemplos_avanzados.py
+```
+
+**Escenario:**
+- Prostituta tiene un hijo
+- 3 posibles padres con probabilidades: Herrero (40%), Pescador (35%), Guardián (25%)
+- Sistema permite resolver paternidad mediante: ADN divino, rasgos físicos, confesión
+
+### 2. Sucesión de Taller
+
+**Escenario:**
+- Herrero maestro muere
+- Hijo hereda el taller
+- Hijo recuerda clientes de su padre
+- Primera conversación: *"Mi padre me mencionó sobre ti..."*
+
+```python
+💬 Cuauhtémoc: Espera... Ichtaca del Viento me habló de ti.
+   Decía que eras un viajero que siempre paga bien y trata con respeto.
+
+💬 Cuauhtémoc: Mi padre falleció en el año 1550.
+   He heredado su taller y sus conocimientos.
+```
+
+### 3. Aprendiz No Familiar
+
+**Escenario:**
+- Maestro Alquimista entrena a estudiante sin relación familiar
+- Relación maestro-aprendiz con progreso (65%)
+- Aprendiz puede eventualmente superar al maestro
+
 ## 🤖 Entrenamiento de IA con Wikipedia
 
 El proyecto incluye un sistema para extraer conocimientos de Wikipedia y entrenar modelos de IA multilingües.
@@ -431,21 +619,43 @@ Esto genera:
 
 ## 🎯 Roadmap
 
+### ✅ Completado (v1.0)
+
 - [x] Sistema de genealogía básico
 - [x] Generación de población inicial (40 humanos)
 - [x] Sistema de matrimonios e hijos
-- [x] Oficios y habilidades
-- [x] Eventos vitales
+- [x] 53 oficios y 25 habilidades
+- [x] Eventos vitales con historial detallado
 - [x] Sistema multilingüe (13 idiomas)
 - [x] Extractor de Wikipedia para IA
-- [ ] Simulación completa 1500-3000
+- [x] **Sistema de personalidades** (34 rasgos)
+- [x] **Sistema de necesidades y economía**
+- [x] **28 items y recursos**
+- [x] **Sistema de trueques y transacciones**
+- [x] **Memoria de NPCs** (contextual y heredada)
+- [x] **IA conversacional** con diálogos adaptativos
+- [x] **Paternidad incierta** (prostituta, padres múltiples)
+- [x] **Sucesión de oficios** (herencia familiar)
+- [x] **Sistema de aprendices** (maestro/estudiante)
+- [x] **Relaciones entre personas** (amigo, enemigo, mentor, amante)
+
+### 🔄 En Progreso (v2.0)
+
+- [ ] Simulación completa 1500-3000 (generación masiva)
+- [ ] Integración con modelos LLM (GPT, Claude, Llama)
+- [ ] Sistema de combate y batallas
+- [ ] Eventos históricos procedurales
+
+### 📋 Planeado (v3.0)
+
 - [ ] Migración a PostgreSQL
 - [ ] API REST para consultas
 - [ ] Dashboard web para visualización
 - [ ] Generador de narrativas automáticas
-- [ ] Entrenamiento de IA multilingüe (en progreso)
-- [ ] Sistema de combate y batallas
-- [ ] Economía y comercio
+- [ ] Sistema de facciones y política
+- [ ] Economía avanzada (inflación, comercio inter-ciudades)
+- [ ] Sistema de magia y habilidades divinas
+- [ ] Generación procedural de misiones
 
 ## 📚 Documentación Adicional
 
