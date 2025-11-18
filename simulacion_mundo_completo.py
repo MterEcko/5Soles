@@ -100,7 +100,8 @@ class SimulacionMundoCompleto:
 
         for tabla in tablas_requeridas:
             self.execute(f"SELECT COUNT(*) FROM {tabla}")
-            count = self.cursor.fetchone()[0]
+            result = self.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
             verificaciones.append((tabla, count > 0, count))
 
         # Mostrar resultados
@@ -111,7 +112,8 @@ class SimulacionMundoCompleto:
 
         # Verificar población inicial
         self.execute("SELECT COUNT(*) FROM personas WHERE año_nacimiento = ?", (self.año_inicio,))
-        pob_inicial = self.cursor.fetchone()[0]
+        result = self.cursor.fetchone()
+        pob_inicial = result['count'] if isinstance(result, dict) else result[0]
         self.stats['poblacion_inicial'] = pob_inicial
 
         print(f"\n👥 Población inicial (año {self.año_inicio}): {pob_inicial:,}")
@@ -200,7 +202,8 @@ class SimulacionMundoCompleto:
         try:
             self.execute("SELECT COUNT(*) FROM conversaciones_historicas")
             ya_existe = True
-            count_existente = self.cursor.fetchone()[0]
+            result = self.cursor.fetchone()
+            count_existente = result['count'] if isinstance(result, dict) else result[0]
             print(f"✅ Sistema de conversaciones ya existe: {count_existente:,} conversaciones")
 
             if count_existente > 0:
@@ -223,7 +226,8 @@ class SimulacionMundoCompleto:
 
         # Calcular conversaciones por año (basado en población)
         self.execute("SELECT COUNT(*) FROM personas")
-        poblacion_total = self.cursor.fetchone()[0]
+        result = self.cursor.fetchone()
+        poblacion_total = result['count'] if isinstance(result, dict) else result[0]
 
         # ~1 conversación por cada 500 personas por año (ajustable)
         conversaciones_por_año = max(50, poblacion_total // 500)
@@ -257,7 +261,8 @@ class SimulacionMundoCompleto:
         """Verifica que un sistema tenga datos"""
         try:
             self.execute(f"SELECT COUNT(*) FROM {tabla}")
-            count = self.cursor.fetchone()[0]
+            result = self.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
 
             if count > 0:
                 print(f"✅ {nombre}: {count:,} registros")
@@ -291,7 +296,8 @@ class SimulacionMundoCompleto:
             "SELECT COUNT(*) FROM personas WHERE año_nacimiento <= ? AND (año_muerte IS NULL OR año_muerte > ?)",
             (self.año_fin, self.año_fin)
         )
-        self.stats['poblacion_final'] = self.cursor.fetchone()[0]
+        result = self.cursor.fetchone()
+        self.stats['poblacion_final'] = result['count'] if isinstance(result, dict) else result[0]
 
         # Poblaciones por especie
         self.execute('''
@@ -334,7 +340,8 @@ class SimulacionMundoCompleto:
         for nombre, query in queries.items():
             try:
                 self.execute(query)
-                estadisticas[nombre] = self.cursor.fetchone()[0]
+                result = self.cursor.fetchone()
+                estadisticas[nombre] = result['count'] if isinstance(result, dict) else result[0]
             except:
                 estadisticas[nombre] = 0
 
