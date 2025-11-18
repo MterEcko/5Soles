@@ -1,2 +1,3 @@
 quinto_sol.db
 __pycache__/
+*.db-journal
