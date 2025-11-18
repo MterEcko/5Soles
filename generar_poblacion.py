@@ -59,27 +59,27 @@ class GeneradorGenealogico:
         # Especies
         self.execute("SELECT id, nombre FROM especies WHERE nombre = 'Humanos I'")
         result = self.cursor.fetchone()
-        self.humanos1_id = result[0] if result else None
+        self.humanos1_id = result['id'] if result else None
 
         # Civilizaciones
         self.execute("SELECT id, nombre FROM civilizaciones")
-        self.civilizaciones = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.civilizaciones = {row['nombre']: row['id'] for row in self.cursor.fetchall()}
 
         # Dioses
         self.execute("SELECT id, nombre FROM dioses")
-        self.dioses = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.dioses = {row['nombre']: row['id'] for row in self.cursor.fetchall()}
 
         # Pueblos/Ciudades
         self.execute("SELECT id, nombre, civilizacion_id FROM pueblos_ciudades")
-        self.lugares = [(id, nombre, civ_id) for id, nombre, civ_id in self.cursor.fetchall()]
+        self.lugares = [(row['id'], row['nombre'], row['civilizacion_id']) for row in self.cursor.fetchall()]
 
         # Oficios
         self.execute("SELECT id, nombre, categoria FROM oficios")
-        self.oficios = [(id, nombre, cat) for id, nombre, cat in self.cursor.fetchall()]
+        self.oficios = [(row['id'], row['nombre'], row['categoria']) for row in self.cursor.fetchall()]
 
         # Habilidades
         self.execute("SELECT id, nombre, categoria FROM habilidades")
-        self.habilidades = [(id, nombre, cat) for id, nombre, cat in self.cursor.fetchall()]
+        self.habilidades = [(row['id'], row['nombre'], row['categoria']) for row in self.cursor.fetchall()]
 
     def calcular_esperanza_vida(self, clase_social: str) -> int:
         """Calcula esperanza de vida según clase social"""
@@ -181,7 +181,7 @@ class GeneradorGenealogico:
         if padre_id:
             self.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
             result = self.cursor.fetchone()
-            apellido = result[0] if result and result[0] else random.choice(APELLIDOS)
+            apellido = result['apellido'] if result else random.choice(APELLIDOS)
         else:
             apellido = random.choice(APELLIDOS)
 
@@ -309,7 +309,7 @@ class GeneradorGenealogico:
                 (persona1_id,)
             )
             result = self.cursor.fetchone()
-            lugar_id = result[0] if result else None
+            lugar_id = result['lugar_residencia_id'] if result else None
 
         self.execute('''
             INSERT INTO matrimonios (persona1_id, persona2_id, año_union, lugar_union_id)
