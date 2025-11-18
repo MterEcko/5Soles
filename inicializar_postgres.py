@@ -14,22 +14,64 @@ from database_connector import DatabaseConnector
 
 def convertir_sqlite_a_postgres(sql_content):
     """Convierte sintaxis SQLite a PostgreSQL"""
+    import re
+
     # 1. AUTOINCREMENT → SERIAL
     sql_content = sql_content.replace('INTEGER PRIMARY KEY AUTOINCREMENT', 'SERIAL PRIMARY KEY')
     sql_content = sql_content.replace('AUTOINCREMENT', '')
 
-    # 2. Boolean: 0/1 → FALSE/TRUE
-    sql_content = sql_content.replace('DEFAULT 0', 'DEFAULT FALSE')
-    sql_content = sql_content.replace('DEFAULT 1', 'DEFAULT TRUE')
+    # 2. Boolean: DEFAULT 0 y DEFAULT 1 solo para columnas BOOLEAN
+    # Usar word boundaries para asegurar que solo reemplazamos valores completos
+    sql_content = re.sub(r'\bBOOLEAN\s+DEFAULT\s+0\b', 'BOOLEAN DEFAULT FALSE', sql_content, flags=re.IGNORECASE)
+    sql_content = re.sub(r'\bBOOLEAN\s+DEFAULT\s+1\b', 'BOOLEAN DEFAULT TRUE', sql_content, flags=re.IGNORECASE)
 
     # 3. DATETIME → TIMESTAMP
     sql_content = sql_content.replace('DATETIME DEFAULT CURRENT_TIMESTAMP', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     sql_content = sql_content.replace('DATETIME', 'TIMESTAMP')
 
-    # 4. IF NOT EXISTS en CREATE INDEX
-    sql_content = sql_content.replace('CREATE INDEX IF NOT EXISTS', 'CREATE INDEX IF NOT EXISTS')
+    # 4. No convertir DEFAULT 0/1 en columnas INTEGER (dejarlos como están)
+    # Los archivos SQLite tienen muchos INTEGER DEFAULT 0 que son válidos en PostgreSQL
 
     return sql_content
+
+
+def limpiar_base_datos(db):
+    """Elimina todas las tablas y funciones existentes para empezar limpio"""
+    print("\n🧹 Limpiando base de datos existente...")
+
+    try:
+        # Eliminar todas las tablas en cascada
+        db.cursor.execute("""
+            DO $$ DECLARE
+                r RECORD;
+            BEGIN
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                END LOOP;
+            END $$;
+        """)
+
+        # Eliminar todas las funciones
+        db.cursor.execute("""
+            DO $$ DECLARE
+                r RECORD;
+            BEGIN
+                FOR r IN (SELECT proname, oidvectortypes(proargtypes) as args
+                          FROM pg_proc INNER JOIN pg_namespace ns ON (pg_proc.pronamespace = ns.oid)
+                          WHERE ns.nspname = 'public') LOOP
+                    EXECUTE 'DROP FUNCTION IF EXISTS ' || quote_ident(r.proname) || '(' || r.args || ') CASCADE';
+                END LOOP;
+            END $$;
+        """)
+
+        db.conn.commit()
+        print("   ✅ Base de datos limpiada")
+        return True
+
+    except Exception as e:
+        print(f"   ⚠️  Error limpiando: {e}")
+        db.conn.rollback()
+        return False
 
 
 def ejecutar_archivo_sql(db, archivo_sql, convertir=False):
@@ -227,6 +269,9 @@ def main():
         print(f"\n❌ Error de conexión: {e}")
         sys.exit(1)
 
+    # Limpiar base de datos existente
+    limpiar_base_datos(db)
+
     # Lista de archivos SQL a ejecutar
     archivos_sql = [
         'schema_postgres.sql',                               # Schema principal
@@ -278,7 +323,8 @@ def main():
     print(f"\n✅ Total de tablas creadas: {len(tablas)}")
     print("\nPrimeras 20 tablas:")
     for i, tabla in enumerate(tablas[:20], 1):
-        print(f"   {i:2d}. {tabla[0]}")
+        nombre_tabla = tabla['tablename'] if isinstance(tabla, dict) else tabla[0]
+        print(f"   {i:2d}. {nombre_tabla}")
 
     if len(tablas) > 20:
         print(f"   ... y {len(tablas) - 20} más")
