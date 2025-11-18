@@ -77,8 +77,8 @@ if __name__ == '__main__':
         print(f"\n▶️  Ejecutando: {script_to_run} {' '.join(script_args)}\n")
         print("="*70 + "\n")
 
-        # Ejecutar script
-        with open(script_to_run) as f:
+        # Ejecutar script (UTF-8 para compatibilidad Windows)
+        with open(script_to_run, encoding='utf-8') as f:
             code = compile(f.read(), script_to_run, 'exec')
             # Modificar sys.argv para el script ejecutado
             sys.argv = [script_to_run] + script_args
