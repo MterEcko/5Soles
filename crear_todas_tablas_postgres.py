@@ -184,13 +184,15 @@ def ejecutar_sql_mejorado(db, archivo_sql):
 
             try:
                 db.cursor.execute(stmt)
+                db.conn.commit()  # ✅ Commit DESPUÉS de cada statement exitoso
                 executed += 1
             except Exception as e:
-                # Solo mostrar errores que no sean "can't execute empty query"
-                if "empty query" not in str(e).lower():
-                    print(f"   ⚠️  Error en statement: {str(e)[:100]}")
-
-        db.conn.commit()
+                # Rollback solo este statement, continuar con los demás
+                db.conn.rollback()
+                # Solo mostrar errores que no sean "can't execute empty query" o "already exists"
+                error_msg = str(e).lower()
+                if "empty query" not in error_msg and "ya existe" not in error_msg and "already exists" not in error_msg:
+                    print(f"   ⚠️  {str(e)[:150]}")
 
         if executed > 0:
             print(f"   ✅ {executed} statements ejecutados")
