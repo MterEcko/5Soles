@@ -77,9 +77,9 @@ class SimulacionMundoCompleto:
             query = query.replace('?', '%s')
 
         if params:
-            self.execute(query, params)
+            self.cursor.execute(query, params)
         else:
-            self.execute(query)
+            self.cursor.execute(query)
         return self.cursor
 
     def verificar_prerequisitos(self) -> bool:
