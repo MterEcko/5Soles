@@ -218,7 +218,7 @@ class GeneradorGenealogico:
             nombre, apellido, self.humanos1_id, padre_id, madre_id, genero,
             año_nacimiento, año_muerte, lugar_id, lugar_id,
             civilizacion_id, clase_social, dios_patron_id, nivel_devoto,
-            1, 0, 1
+            True, False, 1  # es_npc=True, es_jugador=False, nivel=1
         ))
 
         result = self.cursor.fetchone()
