@@ -204,6 +204,132 @@ class SimulacionMundoCompleto:
             traceback.print_exc()
             return False
 
+    def _ejecutar_guerras(self) -> bool:
+        """Ejecuta simulación de guerras inter-especies"""
+        print("\n⚔️  Ejecutando sistema de guerras...")
+
+        try:
+            from sistema_guerras_especies import GeneradorGuerras
+
+            gen_guerras = GeneradorGuerras()
+
+            # Verificar si ya hay guerras
+            gen_guerras.cursor.execute("SELECT COUNT(*) FROM guerras_especies")
+            result = gen_guerras.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
+
+            if count > 0:
+                print(f"   ℹ️  Ya existen {count} guerras registradas, saltando...")
+                gen_guerras.conn.close()
+                return True
+
+            print(f"   Simulando guerras de {self.año_inicio} a {self.año_fin}...")
+            gen_guerras.simular_guerras_periodo(self.año_inicio, self.año_fin)
+            gen_guerras.conn.close()
+
+            print("   ✅ Guerras simuladas correctamente")
+            return True
+
+        except Exception as e:
+            print(f"   ❌ Error en guerras: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _ejecutar_mutaciones(self) -> bool:
+        """Ejecuta simulación de mutaciones"""
+        print("\n🧬 Ejecutando sistema de mutaciones...")
+
+        try:
+            from sistema_mutaciones import GeneradorMutaciones
+
+            gen_mut = GeneradorMutaciones()
+
+            # Verificar catálogo
+            gen_mut.cursor.execute("SELECT COUNT(*) FROM mutaciones_catalogo")
+            result = gen_mut.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
+
+            if count == 0:
+                print("   Creando catálogo de mutaciones...")
+                gen_mut.poblar_catalogo()
+
+            # Verificar mutaciones existentes
+            gen_mut.cursor.execute("SELECT COUNT(*) FROM personas_mutaciones")
+            result = gen_mut.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
+
+            if count > 0:
+                print(f"   ℹ️  Ya existen {count} mutaciones registradas, saltando...")
+                gen_mut.conn.close()
+                return True
+
+            print(f"   Generando mutaciones en población...")
+            gen_mut.simular_mutaciones_periodo(self.año_inicio, self.año_fin)
+            gen_mut.conn.close()
+
+            print("   ✅ Mutaciones generadas correctamente")
+            return True
+
+        except Exception as e:
+            print(f"   ❌ Error en mutaciones: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _ejecutar_matrimonios_interespecie(self) -> bool:
+        """Ejecuta simulación de matrimonios inter-especies e híbridos"""
+        print("\n💍 Ejecutando sistema de matrimonios inter-especies...")
+
+        try:
+            from sistema_matrimonios_interespecie import GeneradorHibridos
+
+            gen_hib = GeneradorHibridos()
+
+            # Poblar compatibilidad
+            print("   Configurando compatibilidad entre especies...")
+            gen_hib.poblar_compatibilidad()
+
+            # Verificar híbridos existentes
+            gen_hib.cursor.execute("SELECT COUNT(*) FROM personas_hibridas")
+            result = gen_hib.cursor.fetchone()
+            count = result['count'] if isinstance(result, dict) else result[0]
+
+            if count > 0:
+                print(f"   ℹ️  Ya existen {count} híbridos registrados, saltando...")
+                gen_hib.conn.close()
+                return True
+
+            print(f"   Generando matrimonios inter-especies...")
+            gen_hib.simular_matrimonios_periodo(self.año_inicio, self.año_fin)
+            gen_hib.conn.close()
+
+            print("   ✅ Matrimonios inter-especies simulados correctamente")
+            return True
+
+        except Exception as e:
+            print(f"   ❌ Error en matrimonios inter-especies: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _ejecutar_sistemas_adicionales(self) -> bool:
+        """Ejecuta todos los sistemas adicionales (artefactos, organizaciones, clima, etc.)"""
+        print("\n🏛️  Ejecutando sistemas adicionales...")
+
+        try:
+            # IMPORTANTE: Este archivo usa SQLite, no está adaptado a PostgreSQL aún
+            # Por ahora lo saltamos
+            print("   ⚠️  Sistemas adicionales (artefactos, organizaciones, clima, economía)")
+            print("      requieren migración a PostgreSQL. Pendiente de implementar.")
+            return True
+
+        except Exception as e:
+            print(f"   ❌ Error en sistemas adicionales: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def ejecutar_fase_1_historica(self):
         """
         FASE 1: Simulación histórica completa (1500-3000)
@@ -238,13 +364,17 @@ class SimulacionMundoCompleto:
         print("EJECUTANDO SISTEMAS PRINCIPALES")
         print("=" * 70)
 
-        # Nota: Los sistemas ya deberían estar ejecutados por simulacion_completa_1500_3000.py
-        # Aquí solo verificamos que existan datos
+        # 1.1 Guerras inter-especies
+        if not self._ejecutar_guerras():
+            print("⚠️  No se pudieron ejecutar guerras, continuando...")
 
-        self._verificar_sistema("personas", "Genealogías")
-        self._verificar_sistema("guerras_especies", "Guerras")
-        self._verificar_sistema("personas_mutaciones", "Mutaciones")
-        self._verificar_sistema("personas_hibridas", "Híbridos")
+        # 1.2 Mutaciones
+        if not self._ejecutar_mutaciones():
+            print("⚠️  No se pudieron ejecutar mutaciones, continuando...")
+
+        # 1.3 Matrimonios inter-especies e híbridos
+        if not self._ejecutar_matrimonios_interespecie():
+            print("⚠️  No se pudieron ejecutar matrimonios inter-especies, continuando...")
 
         # ============================================================
         # 2. SISTEMAS ADICIONALES
@@ -253,14 +383,8 @@ class SimulacionMundoCompleto:
         print("EJECUTANDO SISTEMAS ADICIONALES")
         print("=" * 70)
 
-        # Verificar si ya fueron ejecutados
-        self._verificar_sistema("artefactos", "Artefactos")
-        self._verificar_sistema("organizaciones", "Organizaciones")
-        self._verificar_sistema("eventos_divinos_mayores", "Eventos Divinos")
-        self._verificar_sistema("migraciones", "Migraciones")
-        self._verificar_sistema("crimenes", "Crímenes")
-        self._verificar_sistema("ciclos_climaticos", "Clima")
-        self._verificar_sistema("monedas", "Economía")
+        if not self._ejecutar_sistemas_adicionales():
+            print("⚠️  No se pudieron ejecutar sistemas adicionales, continuando...")
 
         # ============================================================
         # 3. SISTEMA DE CONVERSACIONES NPC (NUEVO)
