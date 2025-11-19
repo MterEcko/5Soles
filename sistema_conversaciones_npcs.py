@@ -11,21 +11,31 @@ FASE 1 (1500-3000): Generación de conversaciones con templates (rápido)
 FASE 2 (3000+): Conversaciones con LLM local + memoria (jugadores)
 """
 
-import sqlite3
 import random
 import json
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime
-
-DB_PATH = 'quinto_sol.db'
+from database_connector import DatabaseConnector
 
 class SistemaConversacionesNPC:
-    def __init__(self, db_path: str = DB_PATH):
-        self.conn = sqlite3.connect(db_path)
-        self.cursor = self.conn.cursor()
+    def __init__(self):
+        self.db = DatabaseConnector()
+        self.conn = self.db.connect()
+        self.cursor = self.db.cursor
 
         # Templates para conversaciones rápidas durante simulación
         self.templates_conversacion = self._cargar_templates()
+
+    def execute(self, query, params=None):
+        """Wrapper para ejecutar queries con conversión automática de placeholders"""
+        if self.db.db_type == 'postgres' and '?' in query:
+            query = query.replace('?', '%s')
+
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor
 
     def _cargar_templates(self) -> Dict:
         """Templates de conversaciones por categoría"""
@@ -76,166 +86,133 @@ class SistemaConversacionesNPC:
         """Crea tablas para sistema de conversaciones"""
         print("\n🗣️  Creando schema de conversaciones NPC...")
 
-        self.cursor.executescript('''
-        -- Conversaciones históricas (FASE 1: 1500-3000)
-        CREATE TABLE IF NOT EXISTS conversaciones_historicas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            año INTEGER NOT NULL,
-            participante_1_id INTEGER NOT NULL,
-            participante_2_id INTEGER NOT NULL,
-            lugar_id INTEGER,
+        statements = [
+            # Conversaciones históricas
+            '''CREATE TABLE IF NOT EXISTS conversaciones_historicas (
+                id SERIAL PRIMARY KEY,
+                año INTEGER NOT NULL,
+                participante_1_id INTEGER NOT NULL,
+                participante_2_id INTEGER NOT NULL,
+                lugar_id INTEGER,
+                categoria VARCHAR(50),
+                tema TEXT,
+                descripcion TEXT NOT NULL,
+                fue_publica BOOLEAN DEFAULT TRUE,
+                testigos TEXT,
+                genero_rumor BOOLEAN DEFAULT FALSE,
+                rumor_id INTEGER,
+                genero_evento BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (participante_1_id) REFERENCES personas(id),
+                FOREIGN KEY (participante_2_id) REFERENCES personas(id),
+                FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
+            )''',
 
-            -- Tipo y contenido
-            categoria VARCHAR(50),  -- 'saludo', 'comercio', 'guerra', etc.
-            tema TEXT,
-            descripcion TEXT NOT NULL,
+            # Rumores
+            '''CREATE TABLE IF NOT EXISTS rumores (
+                id SERIAL PRIMARY KEY,
+                año_origen INTEGER NOT NULL,
+                conversacion_origen_id INTEGER,
+                texto_original TEXT NOT NULL,
+                texto_actual TEXT NOT NULL,
+                categoria VARCHAR(50),
+                veracidad INTEGER,
+                persona_origen_id INTEGER NOT NULL,
+                lugar_origen_id INTEGER NOT NULL,
+                num_propagaciones INTEGER DEFAULT 0,
+                alcance VARCHAR(20),
+                activo BOOLEAN DEFAULT TRUE,
+                año_extincion INTEGER,
+                FOREIGN KEY (conversacion_origen_id) REFERENCES conversaciones_historicas(id),
+                FOREIGN KEY (persona_origen_id) REFERENCES personas(id),
+                FOREIGN KEY (lugar_origen_id) REFERENCES pueblos_ciudades(id)
+            )''',
 
-            -- Metadata
-            fue_publica BOOLEAN DEFAULT 1,
-            testigos TEXT,  -- JSON: [persona_id, ...]
+            # Propagación de rumores
+            '''CREATE TABLE IF NOT EXISTS rumores_propagacion (
+                id SERIAL PRIMARY KEY,
+                rumor_id INTEGER NOT NULL,
+                año_propagacion INTEGER NOT NULL,
+                emisor_id INTEGER NOT NULL,
+                receptor_id INTEGER NOT NULL,
+                lugar_id INTEGER,
+                texto_transmitido TEXT,
+                distorsion INTEGER DEFAULT 0,
+                FOREIGN KEY (rumor_id) REFERENCES rumores(id),
+                FOREIGN KEY (emisor_id) REFERENCES personas(id),
+                FOREIGN KEY (receptor_id) REFERENCES personas(id),
+                FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
+            )''',
 
-            -- Impacto
-            genero_rumor BOOLEAN DEFAULT 0,
-            rumor_id INTEGER,
-            genero_evento BOOLEAN DEFAULT 0,
+            # Conocimiento cultural
+            '''CREATE TABLE IF NOT EXISTS conocimiento_cultural (
+                id SERIAL PRIMARY KEY,
+                civilizacion_id INTEGER NOT NULL,
+                año_creacion INTEGER NOT NULL,
+                tipo VARCHAR(50),
+                nombre VARCHAR(200) NOT NULL,
+                descripcion TEXT NOT NULL,
+                persona_creador_id INTEGER,
+                lugar_origen_id INTEGER,
+                evento_origen_id INTEGER,
+                oral BOOLEAN DEFAULT TRUE,
+                escrito BOOLEAN DEFAULT FALSE,
+                num_conocedores INTEGER DEFAULT 1,
+                sagrado BOOLEAN DEFAULT FALSE,
+                secreto BOOLEAN DEFAULT FALSE,
+                nivel_importancia INTEGER DEFAULT 1,
+                FOREIGN KEY (civilizacion_id) REFERENCES civilizaciones(id),
+                FOREIGN KEY (persona_creador_id) REFERENCES personas(id),
+                FOREIGN KEY (lugar_origen_id) REFERENCES pueblos_ciudades(id)
+            )''',
 
-            FOREIGN KEY (participante_1_id) REFERENCES personas(id),
-            FOREIGN KEY (participante_2_id) REFERENCES personas(id),
-            FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
-        );
+            # Memoria de NPC para jugadores
+            '''CREATE TABLE IF NOT EXISTS npc_memoria_jugadores (
+                id SERIAL PRIMARY KEY,
+                npc_id INTEGER NOT NULL,
+                jugador_id VARCHAR(100) NOT NULL,
+                año_primer_encuentro INTEGER NOT NULL,
+                año_ultimo_encuentro INTEGER NOT NULL,
+                num_encuentros INTEGER DEFAULT 1,
+                afinidad INTEGER DEFAULT 50,
+                confianza INTEGER DEFAULT 50,
+                tipo_relacion VARCHAR(50),
+                eventos_recordados TEXT,
+                FOREIGN KEY (npc_id) REFERENCES personas(id),
+                UNIQUE(npc_id, jugador_id)
+            )''',
 
-        -- Rumores generados por conversaciones
-        CREATE TABLE IF NOT EXISTS rumores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            año_origen INTEGER NOT NULL,
-            conversacion_origen_id INTEGER,
+            # Conversaciones con jugadores
+            '''CREATE TABLE IF NOT EXISTS conversaciones_jugadores (
+                id SERIAL PRIMARY KEY,
+                npc_id INTEGER NOT NULL,
+                jugador_id VARCHAR(100) NOT NULL,
+                año INTEGER NOT NULL,
+                mensaje_jugador TEXT NOT NULL,
+                respuesta_npc TEXT NOT NULL,
+                lugar_id INTEGER,
+                otros_presentes TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                emocion_npc VARCHAR(50),
+                FOREIGN KEY (npc_id) REFERENCES personas(id),
+                FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
+            )''',
 
-            -- Contenido
-            texto_original TEXT NOT NULL,
-            texto_actual TEXT NOT NULL,  -- Va mutando
-            categoria VARCHAR(50),
-            veracidad INTEGER,  -- 0-100 (puede degradarse)
+            # Índices
+            'CREATE INDEX IF NOT EXISTS idx_conv_hist_año ON conversaciones_historicas(año)',
+            'CREATE INDEX IF NOT EXISTS idx_conv_hist_p1 ON conversaciones_historicas(participante_1_id)',
+            'CREATE INDEX IF NOT EXISTS idx_conv_hist_p2 ON conversaciones_historicas(participante_2_id)',
+            'CREATE INDEX IF NOT EXISTS idx_rumores_año ON rumores(año_origen)',
+            'CREATE INDEX IF NOT EXISTS idx_rumores_activos ON rumores(activo)',
+            'CREATE INDEX IF NOT EXISTS idx_conocimiento_civ ON conocimiento_cultural(civilizacion_id)',
+            'CREATE INDEX IF NOT EXISTS idx_npc_memoria_jugador ON npc_memoria_jugadores(jugador_id)',
+            'CREATE INDEX IF NOT EXISTS idx_conv_jugadores_npc ON conversaciones_jugadores(npc_id)'
+        ]
 
-            -- Propagación
-            persona_origen_id INTEGER NOT NULL,
-            lugar_origen_id INTEGER NOT NULL,
-            num_propagaciones INTEGER DEFAULT 0,
-            alcance VARCHAR(20),  -- 'local', 'regional', 'global'
-
-            -- Estado
-            activo BOOLEAN DEFAULT 1,
-            año_extincion INTEGER,
-
-            FOREIGN KEY (conversacion_origen_id) REFERENCES conversaciones_historicas(id),
-            FOREIGN KEY (persona_origen_id) REFERENCES personas(id),
-            FOREIGN KEY (lugar_origen_id) REFERENCES pueblos_ciudades(id)
-        );
-
-        -- Propagación de rumores (efecto teléfono descompuesto)
-        CREATE TABLE IF NOT EXISTS rumores_propagacion (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rumor_id INTEGER NOT NULL,
-            año_propagacion INTEGER NOT NULL,
-
-            emisor_id INTEGER NOT NULL,
-            receptor_id INTEGER NOT NULL,
-            lugar_id INTEGER,
-
-            -- Mutación
-            texto_transmitido TEXT,
-            distorsion INTEGER DEFAULT 0,  -- 0-100
-
-            FOREIGN KEY (rumor_id) REFERENCES rumores(id),
-            FOREIGN KEY (emisor_id) REFERENCES personas(id),
-            FOREIGN KEY (receptor_id) REFERENCES personas(id),
-            FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
-        );
-
-        -- Conocimiento cultural generado
-        CREATE TABLE IF NOT EXISTS conocimiento_cultural (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            civilizacion_id INTEGER NOT NULL,
-            año_creacion INTEGER NOT NULL,
-
-            tipo VARCHAR(50),  -- 'leyenda', 'tradicion', 'tabú', 'ritual', 'tecnica'
-            nombre VARCHAR(200) NOT NULL,
-            descripcion TEXT NOT NULL,
-
-            -- Origen
-            persona_creador_id INTEGER,
-            lugar_origen_id INTEGER,
-            evento_origen_id INTEGER,
-
-            -- Transmisión
-            oral BOOLEAN DEFAULT 1,
-            escrito BOOLEAN DEFAULT 0,
-            num_conocedores INTEGER DEFAULT 1,
-
-            -- Importancia
-            sagrado BOOLEAN DEFAULT 0,
-            secreto BOOLEAN DEFAULT 0,
-            nivel_importancia INTEGER DEFAULT 1,  -- 1-10
-
-            FOREIGN KEY (civilizacion_id) REFERENCES civilizaciones(id),
-            FOREIGN KEY (persona_creador_id) REFERENCES personas(id),
-            FOREIGN KEY (lugar_origen_id) REFERENCES pueblos_ciudades(id)
-        );
-
-        -- Memoria de NPC para jugadores (FASE 2: año 3000+)
-        CREATE TABLE IF NOT EXISTS npc_memoria_jugadores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            npc_id INTEGER NOT NULL,
-            jugador_id VARCHAR(100) NOT NULL,  -- UUID del jugador
-
-            año_primer_encuentro INTEGER NOT NULL,
-            año_ultimo_encuentro INTEGER NOT NULL,
-            num_encuentros INTEGER DEFAULT 1,
-
-            -- Relación
-            afinidad INTEGER DEFAULT 50,  -- 0-100
-            confianza INTEGER DEFAULT 50,  -- 0-100
-            tipo_relacion VARCHAR(50),  -- 'desconocido', 'conocido', 'amigo', 'enemigo'
-
-            -- Memoria episódica (eventos importantes)
-            eventos_recordados TEXT,  -- JSON: [{año, tipo, descripcion}, ...]
-
-            FOREIGN KEY (npc_id) REFERENCES personas(id),
-            UNIQUE(npc_id, jugador_id)
-        );
-
-        -- Conversaciones con jugadores
-        CREATE TABLE IF NOT EXISTS conversaciones_jugadores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            npc_id INTEGER NOT NULL,
-            jugador_id VARCHAR(100) NOT NULL,
-            año INTEGER NOT NULL,
-
-            -- Conversación
-            mensaje_jugador TEXT NOT NULL,
-            respuesta_npc TEXT NOT NULL,
-
-            -- Contexto
-            lugar_id INTEGER,
-            otros_presentes TEXT,  -- JSON: [jugador_id/npc_id, ...]
-
-            -- Metadata
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            emocion_npc VARCHAR(50),  -- 'feliz', 'enojado', 'neutral', etc.
-
-            FOREIGN KEY (npc_id) REFERENCES personas(id),
-            FOREIGN KEY (lugar_id) REFERENCES pueblos_ciudades(id)
-        );
-
-        -- Índices
-        CREATE INDEX IF NOT EXISTS idx_conv_hist_año ON conversaciones_historicas(año);
-        CREATE INDEX IF NOT EXISTS idx_conv_hist_p1 ON conversaciones_historicas(participante_1_id);
-        CREATE INDEX IF NOT EXISTS idx_conv_hist_p2 ON conversaciones_historicas(participante_2_id);
-        CREATE INDEX IF NOT EXISTS idx_rumores_año ON rumores(año_origen);
-        CREATE INDEX IF NOT EXISTS idx_rumores_activos ON rumores(activo) WHERE activo = 1;
-        CREATE INDEX IF NOT EXISTS idx_conocimiento_civ ON conocimiento_cultural(civilizacion_id);
-        CREATE INDEX IF NOT EXISTS idx_npc_memoria_jugador ON npc_memoria_jugadores(jugador_id);
-        CREATE INDEX IF NOT EXISTS idx_conv_jugadores_npc ON conversaciones_jugadores(npc_id);
-        ''')
+        for stmt in statements:
+            try:
+                self.cursor.execute(stmt)
+            except Exception as e:
+                print(f"   ⚠️  Error en statement: {e}")
 
         self.conn.commit()
         print("✅ Schema de conversaciones creado")
@@ -247,7 +224,7 @@ class SistemaConversacionesNPC:
         """
 
         # Obtener personas vivas en ese año
-        self.cursor.execute('''
+        self.execute('''
             SELECT id, nombre, oficio FROM personas
             WHERE año_nacimiento <= ?
             AND (año_muerte IS NULL OR año_muerte >= ?)
@@ -261,7 +238,7 @@ class SistemaConversacionesNPC:
             return 0
 
         # Obtener lugares
-        self.cursor.execute('SELECT id, nombre FROM pueblos_ciudades ORDER BY RANDOM() LIMIT 10')
+        self.execute('SELECT id, nombre FROM pueblos_ciudades ORDER BY RANDOM() LIMIT 10')
         lugares = self.cursor.fetchall()
 
         if not lugares:
@@ -281,10 +258,18 @@ class SistemaConversacionesNPC:
             template = random.choice(self.templates_conversacion[categoria])
             tema = self._generar_tema(categoria, p1, p2)
 
+            # Convertir a dict si es RealDictRow
+            p1_id = p1['id'] if isinstance(p1, dict) else p1[0]
+            p1_nombre = p1['nombre'] if isinstance(p1, dict) else p1[1]
+            p2_id = p2['id'] if isinstance(p2, dict) else p2[0]
+            p2_nombre = p2['nombre'] if isinstance(p2, dict) else p2[1]
+            lugar_id = lugar['id'] if isinstance(lugar, dict) else lugar[0]
+            lugar_nombre = lugar['nombre'] if isinstance(lugar, dict) else lugar[1]
+
             descripcion = template.format(
-                p1=p1[1],  # nombre
-                p2=p2[1],
-                lugar=lugar[1],
+                p1=p1_nombre,
+                p2=p2_nombre,
+                lugar=lugar_nombre,
                 tema=tema
             )
 
@@ -292,18 +277,19 @@ class SistemaConversacionesNPC:
             genero_rumor = random.random() < 0.1  # 10%
 
             # Insertar conversación
-            self.cursor.execute('''
+            self.execute('''
                 INSERT INTO conversaciones_historicas (
                     año, participante_1_id, participante_2_id, lugar_id,
                     categoria, tema, descripcion, fue_publica, genero_rumor
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (año, p1[0], p2[0], lugar[0], categoria, tema, descripcion, True, genero_rumor))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            ''', (año, p1_id, p2_id, lugar_id, categoria, tema, descripcion, True, genero_rumor))
 
-            conv_id = self.cursor.lastrowid
+            result = self.cursor.fetchone()
+            conv_id = result['id'] if isinstance(result, dict) else result[0]
 
             # Si generó rumor, crear rumor
             if genero_rumor:
-                self._crear_rumor(conv_id, año, p1[0], lugar[0], categoria, tema)
+                self._crear_rumor(conv_id, año, p1_id, lugar_id, categoria, tema)
 
             conversaciones_generadas += 1
 
@@ -314,18 +300,23 @@ class SistemaConversacionesNPC:
         """Selecciona categoría de conversación basada en contexto"""
 
         # Verificar si hay guerra activa en este año
-        self.cursor.execute('SELECT COUNT(*) FROM guerras_especies WHERE año_inicio <= ? AND año_fin >= ?', (año, año))
-        hay_guerra = self.cursor.fetchone()[0] > 0
+        self.execute('SELECT COUNT(*) FROM guerras_especies WHERE año_inicio <= ? AND año_fin >= ?', (año, año))
+        result = self.cursor.fetchone()
+        count = result['count'] if isinstance(result, dict) else result[0]
+        hay_guerra = count > 0
 
         if hay_guerra and random.random() < 0.3:  # 30% si hay guerra
             return 'guerra'
 
         # Si ambos tienen oficios relacionados
-        if p1[2] and p2[2]:  # oficio
-            if any(word in p1[2].lower() for word in ['sacerdote', 'curandero', 'chamán']):
+        p1_oficio = p1['oficio'] if isinstance(p1, dict) else p1[2]
+        p2_oficio = p2['oficio'] if isinstance(p2, dict) else p2[2]
+
+        if p1_oficio and p2_oficio:
+            if any(word in p1_oficio.lower() for word in ['sacerdote', 'curandero', 'chamán']):
                 if random.random() < 0.4:
                     return 'religion'
-            if any(word in p1[2].lower() for word in ['comerciante', 'artesano', 'herrero']):
+            if any(word in p1_oficio.lower() for word in ['comerciante', 'artesano', 'herrero']):
                 if random.random() < 0.4:
                     return 'comercio'
 
@@ -368,7 +359,7 @@ class SistemaConversacionesNPC:
         texto = random.choice(textos_rumor)
         veracidad = random.randint(50, 100)  # Los rumores nuevos suelen tener algo de verdad
 
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO rumores (
                 año_origen, conversacion_origen_id, texto_original, texto_actual,
                 categoria, veracidad, persona_origen_id, lugar_origen_id, alcance
@@ -379,23 +370,30 @@ class SistemaConversacionesNPC:
         """Propaga rumores activos durante un año (efecto teléfono descompuesto)"""
 
         # Obtener rumores activos
-        self.cursor.execute('''
+        self.execute('''
             SELECT id, texto_actual, veracidad, lugar_origen_id, num_propagaciones
             FROM rumores
-            WHERE activo = 1 AND año_origen <= ?
+            WHERE activo = TRUE AND año_origen <= ?
             ORDER BY RANDOM()
             LIMIT 20
         ''', (año,))
 
         rumores = self.cursor.fetchall()
 
-        for rumor_id, texto, veracidad, lugar_id, num_prop in rumores:
+        for rumor_row in rumores:
+            # Convertir a dict si es RealDictRow
+            rumor_id = rumor_row['id'] if isinstance(rumor_row, dict) else rumor_row[0]
+            texto = rumor_row['texto_actual'] if isinstance(rumor_row, dict) else rumor_row[1]
+            veracidad = rumor_row['veracidad'] if isinstance(rumor_row, dict) else rumor_row[2]
+            lugar_id = rumor_row['lugar_origen_id'] if isinstance(rumor_row, dict) else rumor_row[3]
+            num_prop = rumor_row['num_propagaciones'] if isinstance(rumor_row, dict) else rumor_row[4]
+
             # Número de propagaciones este año (1-5)
             propagaciones = random.randint(1, 5)
 
             for _ in range(propagaciones):
                 # Seleccionar emisor y receptor
-                self.cursor.execute('''
+                self.execute('''
                     SELECT id FROM personas
                     WHERE año_nacimiento <= ? AND (año_muerte IS NULL OR año_muerte >= ?)
                     ORDER BY RANDOM() LIMIT 2
@@ -405,13 +403,14 @@ class SistemaConversacionesNPC:
                 if len(personas) < 2:
                     continue
 
-                emisor_id, receptor_id = personas[0][0], personas[1][0]
+                emisor_id = personas[0]['id'] if isinstance(personas[0], dict) else personas[0][0]
+                receptor_id = personas[1]['id'] if isinstance(personas[1], dict) else personas[1][0]
 
                 # Calcular distorsión (aumenta con cada propagación)
                 distorsion = min(100, num_prop * 5 + random.randint(0, 20))
 
                 # Insertar propagación
-                self.cursor.execute('''
+                self.execute('''
                     INSERT INTO rumores_propagacion (
                         rumor_id, año_propagacion, emisor_id, receptor_id,
                         lugar_id, texto_transmitido, distorsion
@@ -423,15 +422,15 @@ class SistemaConversacionesNPC:
 
             # Rumor se extingue si ha sido muy propagado o muy distorsionado
             if nuevo_num_prop > 50 or veracidad < 10:
-                self.cursor.execute('''
+                self.execute('''
                     UPDATE rumores
-                    SET activo = 0, año_extincion = ?, num_propagaciones = ?
+                    SET activo = FALSE, año_extincion = ?, num_propagaciones = ?
                     WHERE id = ?
                 ''', (año, nuevo_num_prop, rumor_id))
             else:
-                self.cursor.execute('''
+                self.execute('''
                     UPDATE rumores
-                    SET num_propagaciones = ?, veracidad = MAX(0, veracidad - ?)
+                    SET num_propagaciones = ?, veracidad = GREATEST(0, veracidad - ?)
                     WHERE id = ?
                 ''', (nuevo_num_prop, random.randint(1, 5), rumor_id))
 
@@ -444,14 +443,15 @@ class SistemaConversacionesNPC:
         if random.random() > 0.05:
             return 0
 
-        self.cursor.execute('SELECT id, nombre FROM civilizaciones')
+        self.execute('SELECT id, nombre FROM civilizaciones')
         civilizaciones = self.cursor.fetchall()
 
         if not civilizaciones:
             return 0
 
         civ = random.choice(civilizaciones)
-        civ_id, civ_nombre = civ
+        civ_id = civ['id'] if isinstance(civ, dict) else civ[0]
+        civ_nombre = civ['nombre'] if isinstance(civ, dict) else civ[1]
 
         # Tipos de conocimiento
         tipos = ['leyenda', 'tradicion', 'tabú', 'ritual', 'tecnica']
@@ -470,17 +470,17 @@ class SistemaConversacionesNPC:
         descripcion = f"Conocimiento cultural generado en el año {año} en {civ_nombre}"
 
         # Seleccionar creador
-        self.cursor.execute('''
+        self.execute('''
             SELECT id FROM personas
             WHERE año_nacimiento <= ? AND (año_muerte IS NULL OR año_muerte >= ?)
             ORDER BY RANDOM() LIMIT 1
         ''', (año, año))
 
         creador = self.cursor.fetchone()
-        creador_id = creador[0] if creador else None
+        creador_id = creador['id'] if (creador and isinstance(creador, dict)) else (creador[0] if creador else None)
 
         # Insertar
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO conocimiento_cultural (
                 civilizacion_id, año_creacion, tipo, nombre, descripcion,
                 persona_creador_id, nivel_importancia, sagrado, secreto
@@ -530,9 +530,10 @@ class SistemaConversacionesNPC:
             self.conn.commit()
 
         # Contar rumores generados
-        self.cursor.execute('SELECT COUNT(*) FROM rumores WHERE año_origen >= ? AND año_origen <= ?',
-                           (año_inicio, año_fin))
-        total_rumores = self.cursor.fetchone()[0]
+        self.execute('SELECT COUNT(*) FROM rumores WHERE año_origen >= ? AND año_origen <= ?',
+                    (año_inicio, año_fin))
+        result = self.cursor.fetchone()
+        total_rumores = result['count'] if isinstance(result, dict) else result[0]
 
         fin = datetime.now()
         duracion = fin - inicio
@@ -550,34 +551,54 @@ class SistemaConversacionesNPC:
         stats = {}
 
         # Conversaciones totales
-        self.cursor.execute('SELECT COUNT(*) FROM conversaciones_historicas')
-        stats['conversaciones_totales'] = self.cursor.fetchone()[0]
+        self.execute('SELECT COUNT(*) FROM conversaciones_historicas')
+        result = self.cursor.fetchone()
+        stats['conversaciones_totales'] = result['count'] if isinstance(result, dict) else result[0]
 
         # Por categoría
-        self.cursor.execute('''
-            SELECT categoria, COUNT(*)
+        self.execute('''
+            SELECT categoria, COUNT(*) as count
             FROM conversaciones_historicas
             GROUP BY categoria
         ''')
-        stats['por_categoria'] = dict(self.cursor.fetchall())
+        rows = self.cursor.fetchall()
+        if rows:
+            stats['por_categoria'] = {
+                row['categoria'] if isinstance(row, dict) else row[0]:
+                row['count'] if isinstance(row, dict) else row[1]
+                for row in rows
+            }
+        else:
+            stats['por_categoria'] = {}
 
         # Rumores
-        self.cursor.execute('SELECT COUNT(*) FROM rumores')
-        stats['rumores_totales'] = self.cursor.fetchone()[0]
+        self.execute('SELECT COUNT(*) FROM rumores')
+        result = self.cursor.fetchone()
+        stats['rumores_totales'] = result['count'] if isinstance(result, dict) else result[0]
 
-        self.cursor.execute('SELECT COUNT(*) FROM rumores WHERE activo = 1')
-        stats['rumores_activos'] = self.cursor.fetchone()[0]
+        self.execute('SELECT COUNT(*) FROM rumores WHERE activo = TRUE')
+        result = self.cursor.fetchone()
+        stats['rumores_activos'] = result['count'] if isinstance(result, dict) else result[0]
 
         # Conocimiento cultural
-        self.cursor.execute('SELECT COUNT(*) FROM conocimiento_cultural')
-        stats['conocimiento_total'] = self.cursor.fetchone()[0]
+        self.execute('SELECT COUNT(*) FROM conocimiento_cultural')
+        result = self.cursor.fetchone()
+        stats['conocimiento_total'] = result['count'] if isinstance(result, dict) else result[0]
 
-        self.cursor.execute('''
-            SELECT tipo, COUNT(*)
+        self.execute('''
+            SELECT tipo, COUNT(*) as count
             FROM conocimiento_cultural
             GROUP BY tipo
         ''')
-        stats['conocimiento_por_tipo'] = dict(self.cursor.fetchall())
+        rows = self.cursor.fetchall()
+        if rows:
+            stats['conocimiento_por_tipo'] = {
+                row['tipo'] if isinstance(row, dict) else row[0]:
+                row['count'] if isinstance(row, dict) else row[1]
+                for row in rows
+            }
+        else:
+            stats['conocimiento_por_tipo'] = {}
 
         return stats
 
