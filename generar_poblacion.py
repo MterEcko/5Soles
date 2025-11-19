@@ -338,14 +338,21 @@ class GeneradorGenealogico:
             FROM personas WHERE id = ?
         ''', (madre_id,))
         madre_info = self.cursor.fetchone()
-        civ_id, lugar_id, año_muerte_madre = madre_info
+
+        # Manejar RealDictCursor de PostgreSQL
+        if isinstance(madre_info, dict):
+            civ_id = madre_info['civilizacion_id']
+            lugar_id = madre_info['lugar_residencia_id']
+            año_muerte_madre = madre_info['año_muerte']
+        else:
+            civ_id, lugar_id, año_muerte_madre = madre_info
 
         # Los hijos nacen en intervalos de 2-4 años
         año_actual = año_matrimonio + 1
 
         for i in range(num_hijos):
-            # Verificar que la madre esté viva
-            if año_actual > año_muerte_madre:
+            # Verificar que la madre esté viva (año_muerte_madre puede ser None)
+            if año_muerte_madre is not None and año_actual > año_muerte_madre:
                 break
 
             genero = random.choice(['masculino', 'femenino'])
