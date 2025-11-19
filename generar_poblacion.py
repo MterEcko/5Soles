@@ -400,9 +400,9 @@ class GeneradorGenealogico:
 
         solteros = self.cursor.fetchall()
 
-        # Separar por género
-        hombres = [s for s in solteros if s[1] == 'masculino']
-        mujeres = [s for s in solteros if s[1] == 'femenino']
+        # Separar por género (manejar RealDictCursor de PostgreSQL)
+        hombres = [s for s in solteros if (s['genero'] if isinstance(s, dict) else s[1]) == 'masculino']
+        mujeres = [s for s in solteros if (s['genero'] if isinstance(s, dict) else s[1]) == 'femenino']
 
         print(f"Personas disponibles: {len(hombres)} hombres, {len(mujeres)} mujeres")
 
@@ -417,10 +417,17 @@ class GeneradorGenealogico:
             if not mujeres:
                 break
 
-            hombre_id, _, h_año_nac, h_civ_id, h_nombre = hombre
+            # Extraer datos (compatible con dict y tupla)
+            hombre_id = hombre['id'] if isinstance(hombre, dict) else hombre[0]
+            h_año_nac = hombre['año_nacimiento'] if isinstance(hombre, dict) else hombre[2]
+            h_civ_id = hombre['civilizacion_id'] if isinstance(hombre, dict) else hombre[3]
+            h_nombre = hombre['nombre_completo'] if isinstance(hombre, dict) else hombre[4]
 
             # Buscar mujer de la misma civilización
-            mujer_misma_civ = [m for m in mujeres if m[3] == h_civ_id]
+            mujer_misma_civ = [
+                m for m in mujeres
+                if (m['civilizacion_id'] if isinstance(m, dict) else m[3]) == h_civ_id
+            ]
 
             if mujer_misma_civ:
                 mujer = random.choice(mujer_misma_civ)
@@ -433,7 +440,11 @@ class GeneradorGenealogico:
             else:
                 break
 
-            mujer_id, _, m_año_nac, m_civ_id, m_nombre = mujer
+            # Extraer datos de la mujer
+            mujer_id = mujer['id'] if isinstance(mujer, dict) else mujer[0]
+            m_año_nac = mujer['año_nacimiento'] if isinstance(mujer, dict) else mujer[2]
+            m_civ_id = mujer['civilizacion_id'] if isinstance(mujer, dict) else mujer[3]
+            m_nombre = mujer['nombre_completo'] if isinstance(mujer, dict) else mujer[4]
             mujeres.remove(mujer)
 
             # Edad de matrimonio
