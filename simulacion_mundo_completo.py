@@ -110,28 +110,37 @@ class SimulacionMundoCompleto:
             status = "✅" if existe else "❌"
             print(f"  {status} {tabla}: {count} registros")
 
-        # Verificar población inicial
-        self.execute("SELECT COUNT(*) FROM personas WHERE año_nacimiento = ?", (self.año_inicio,))
+        # Verificar población inicial (personas vivas en año de inicio)
+        self.execute(
+            "SELECT COUNT(*) FROM personas WHERE año_nacimiento <= ? AND (año_muerte IS NULL OR año_muerte >= ?)",
+            (self.año_inicio, self.año_inicio)
+        )
         result = self.cursor.fetchone()
         pob_inicial = result['count'] if isinstance(result, dict) else result[0]
         self.stats['poblacion_inicial'] = pob_inicial
 
-        print(f"\n👥 Población inicial (año {self.año_inicio}): {pob_inicial:,}")
+        print(f"\n👥 Población viva en año {self.año_inicio}: {pob_inicial:,}")
 
         if pob_inicial == 0:
-            print("⚠️  ADVERTENCIA: No hay población inicial")
-            print("   Ejecutar primero: generar_poblacion.py y generar_genealogias_especies.py")
+            print("⚠️  ADVERTENCIA: No hay población viva en el año de inicio")
+            print("   Ejecutar primero: generar_poblacion.py")
             return False
 
-        # Todo OK
-        todas_ok = all(existe for _, existe, _ in verificaciones)
+        # Verificar tablas críticas (deben tener datos)
+        tablas_criticas = ['especies', 'civilizaciones', 'dioses', 'personas', 'pueblos_ciudades']
+        criticas_ok = all(
+            existe for tabla, existe, count in verificaciones
+            if tabla in tablas_criticas
+        )
 
-        if todas_ok:
-            print("\n✅ Todos los prerequisitos verificados")
+        if criticas_ok:
+            print("\n✅ Prerequisitos críticos verificados")
+            print("   (Las demás tablas se llenarán durante la simulación)")
         else:
-            print("\n❌ Faltan prerequisitos")
+            print("\n❌ Faltan datos críticos")
+            return False
 
-        return todas_ok
+        return True
 
     def ejecutar_fase_1_historica(self):
         """
