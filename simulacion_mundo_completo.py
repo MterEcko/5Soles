@@ -231,7 +231,15 @@ class SimulacionMundoCompleto:
 
         # Crear schema si no existe
         if not ya_existe:
-            sistema_conv.crear_schema_conversaciones()
+            try:
+                print("   🔧 Creando schema de conversaciones...")
+                sistema_conv.crear_schema_conversaciones()
+                self.conn.commit()  # Commit schema creation
+                print("   ✅ Schema creado correctamente")
+            except Exception as e:
+                print(f"   ⚠️  Error creando schema: {e}")
+                self.conn.rollback()  # Rollback on error
+                print("   ℹ️  Continuando (el schema puede ya existir)...")
 
         # Calcular conversaciones por año (basado en población)
         self.execute("SELECT COUNT(*) FROM personas")
