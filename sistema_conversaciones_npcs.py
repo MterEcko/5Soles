@@ -225,7 +225,7 @@ class SistemaConversacionesNPC:
 
         # Obtener personas vivas en ese año
         self.execute('''
-            SELECT id, nombre, oficio FROM personas
+            SELECT id, nombre, clase_social FROM personas
             WHERE año_nacimiento <= ?
             AND (año_muerte IS NULL OR año_muerte >= ?)
             ORDER BY RANDOM()
@@ -308,15 +308,15 @@ class SistemaConversacionesNPC:
         if hay_guerra and random.random() < 0.3:  # 30% si hay guerra
             return 'guerra'
 
-        # Si ambos tienen oficios relacionados
-        p1_oficio = p1['oficio'] if isinstance(p1, dict) else p1[2]
-        p2_oficio = p2['oficio'] if isinstance(p2, dict) else p2[2]
+        # Si ambos tienen clase social relacionada
+        p1_clase = p1['clase_social'] if isinstance(p1, dict) else p1[2]
+        p2_clase = p2['clase_social'] if isinstance(p2, dict) else p2[2]
 
-        if p1_oficio and p2_oficio:
-            if any(word in p1_oficio.lower() for word in ['sacerdote', 'curandero', 'chamán']):
+        if p1_clase and p2_clase:
+            if any(word in p1_clase.lower() for word in ['sacerdote', 'curandero', 'chamán']):
                 if random.random() < 0.4:
                     return 'religion'
-            if any(word in p1_oficio.lower() for word in ['comerciante', 'artesano', 'herrero']):
+            if any(word in p1_clase.lower() for word in ['artesano', 'herrero', 'comerciante']):
                 if random.random() < 0.4:
                     return 'comercio'
 
