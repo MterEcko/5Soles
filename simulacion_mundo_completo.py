@@ -126,6 +126,23 @@ class SimulacionMundoCompleto:
             print("   Ejecutar primero: generar_poblacion.py")
             return False
 
+        # Si la población es muy pequeña (<100), ejecutar simulación genealógica
+        if pob_inicial < 100:
+            print(f"\n⚠️  POBLACIÓN INICIAL MUY PEQUEÑA ({pob_inicial} personas)")
+            print("   Para una simulación completa se recomienda generar más población")
+            print(f"   Esto simulará genealogía de {self.año_inicio} a {self.año_fin}")
+            print("   y generará aproximadamente 270,000 personas.")
+            print("\n⏱️  Tiempo estimado: 30-60 minutos")
+
+            respuesta = input("\n¿Ejecutar simulación genealógica ahora? (s/n): ").strip().lower()
+
+            if respuesta == 's':
+                if not self._ejecutar_simulacion_genealogica():
+                    print("❌ Error en simulación genealógica")
+                    return False
+            else:
+                print("\n⚠️  Continuando con población actual (las conversaciones serán limitadas)")
+
         # Verificar tablas críticas (deben tener datos)
         tablas_criticas = ['especies', 'civilizaciones', 'dioses', 'personas', 'pueblos_ciudades']
         criticas_ok = all(
@@ -141,6 +158,51 @@ class SimulacionMundoCompleto:
             return False
 
         return True
+
+    def _ejecutar_simulacion_genealogica(self) -> bool:
+        """Ejecuta la simulación genealógica completa usando GeneradorGenealogico"""
+        print("\n" + "=" * 70)
+        print("EJECUTANDO SIMULACIÓN GENEALÓGICA")
+        print("=" * 70)
+
+        try:
+            from generar_poblacion import GeneradorGenealogico
+            from datetime import datetime
+
+            inicio = datetime.now()
+
+            gen = GeneradorGenealogico()
+
+            print(f"\n🚀 Simulando genealogía de {self.año_inicio} a {self.año_fin}...")
+            print("   (Se mostrará progreso cada 25 años)\n")
+
+            estadisticas = gen.simular_historia(
+                año_inicio=self.año_inicio,
+                año_fin=self.año_fin,
+                intervalo_generacion=25
+            )
+
+            gen.cerrar()
+
+            fin = datetime.now()
+            duracion = fin - inicio
+
+            print("\n" + "=" * 70)
+            print("✅ SIMULACIÓN GENEALÓGICA COMPLETADA")
+            print("=" * 70)
+            print(f"⏱️  Duración: {duracion}")
+            print(f"👥 Personas generadas: {estadisticas['hijos_totales']:,}")
+            print(f"💑 Matrimonios: {estadisticas['matrimonios_totales']:,}")
+            print(f"📅 Generaciones: {estadisticas['generaciones']}")
+            print("=" * 70 + "\n")
+
+            return True
+
+        except Exception as e:
+            print(f"\n❌ Error durante simulación genealógica: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def ejecutar_fase_1_historica(self):
         """
