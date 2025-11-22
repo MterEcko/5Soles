@@ -6,10 +6,10 @@ Portales del Quinto Sol - 5 especies con 300 años de longevidad
 Simulación: 1500-3000 (1500 años, ~5 generaciones)
 """
 
-import sqlite3
 import random
 import json
 from typing import List, Tuple, Optional, Dict
+from database_connector import DatabaseConnector # Importación clave
 
 # ================================================================
 # NOMBRES POR ESPECIE (basados en características)
@@ -78,7 +78,7 @@ ESPECIES_CONFIG = {
         'mortalidad_infantil': 0.05,  # 5% (más resistentes)
         'inteligencia_1500': 150,
         'resistencia_base': 85,
-        'civilizacion_patron': 'Toltecas del Viento',
+        'civilizacion_patron': 'Mayas Celeste',
         'dios_patron': 'Quetzalcóatl'
     },
     'Sombra-Coyotes': {
@@ -90,7 +90,7 @@ ESPECIES_CONFIG = {
         'mortalidad_infantil': 0.08,  # 8%
         'inteligencia_1500': 150,
         'resistencia_base': 90,  # muy resistentes (sombra)
-        'civilizacion_patron': 'Purépecha del Fuego',
+        'civilizacion_patron': 'Mexica de Obsidiana',
         'dios_patron': 'Tezcatlipoca'
     },
     'Bio-Constructores': {
@@ -102,8 +102,8 @@ ESPECIES_CONFIG = {
         'mortalidad_infantil': 0.04,  # 4% (máxima resistencia)
         'inteligencia_1500': 150,
         'resistencia_base': 95,  # regeneración natural
-        'civilizacion_patron': 'Zapotecas del Eco',
-        'dios_patron': 'Centéotl'
+        'civilizacion_patron': 'Mayas Celeste',
+        'dios_patron': 'Ixchel'
     },
     'Acuátiles': {
         'longevidad_base': (230, 300),
@@ -114,7 +114,7 @@ ESPECIES_CONFIG = {
         'mortalidad_infantil': 0.06,  # 6%
         'inteligencia_1500': 150,
         'resistencia_base': 88,
-        'civilizacion_patron': 'Mayas Celeste',
+        'civilizacion_patron': 'Mexica de Obsidiana',
         'dios_patron': 'Tláloc'
     },
     'Guerreros Solares': {
@@ -136,37 +136,49 @@ ESPECIES_CONFIG = {
 # ================================================================
 
 class GeneradorEspecies:
-    def __init__(self, db_path='quinto_sol.db'):
-        self.conn = sqlite3.connect(db_path)
-        self.cursor = self.conn.cursor()
+    def __init__(self):
+        self.db = DatabaseConnector()
+        self.conn = self.db.connect()
+        self.cursor = self.db.cursor
         self.año_actual = 1500
         self.cargar_datos_referencia()
+
+    def execute(self, query, params=None):
+        """Wrapper para asegurar compatibilidad de placeholders"""
+        if self.db.db_type == 'postgres' and '?' in query:
+            query = query.replace('?', '%s')
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor
 
     def cargar_datos_referencia(self):
         """Carga datos necesarios de la BD"""
         # Especies
-        self.cursor.execute("SELECT id, nombre FROM especies WHERE nombre != 'Humanos I' AND nombre != 'Humanos II'")
-        self.especies = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.execute("SELECT id, nombre FROM especies WHERE nombre != 'Humanos I' AND nombre != 'Humanos II'")
+        self.especies = {row['nombre']: row['id'] for row in self.cursor.fetchall()}
 
         # Civilizaciones
-        self.cursor.execute("SELECT id, nombre FROM civilizaciones")
-        self.civilizaciones = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.execute("SELECT id, nombre FROM civilizaciones")
+        self.civilizaciones = {row['nombre']: row['id'] for row in self.cursor.fetchall()}
 
         # Dioses
-        self.cursor.execute("SELECT id, nombre FROM dioses")
-        self.dioses = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.execute("SELECT id, nombre FROM dioses")
+        self.dioses = {row['nombre']: row['id'] for row in self.cursor.fetchall()}
 
         # Lugares por civilización
-        self.cursor.execute("SELECT id, nombre, civilizacion_id FROM pueblos_ciudades")
+        self.execute("SELECT id, nombre, civilizacion_id FROM pueblos_ciudades")
         self.lugares = {}
-        for lugar_id, nombre, civ_id in self.cursor.fetchall():
+        for row in self.cursor.fetchall():
+            lugar_id, nombre, civ_id = row['id'], row['nombre'], row['civilizacion_id']
             if civ_id not in self.lugares:
                 self.lugares[civ_id] = []
             self.lugares[civ_id].append((lugar_id, nombre))
 
         # Oficios
-        self.cursor.execute("SELECT id, nombre, categoria FROM oficios")
-        self.oficios = [(id, nombre, cat) for id, nombre, cat in self.cursor.fetchall()]
+        self.execute("SELECT id, nombre, categoria FROM oficios")
+        self.oficios = [(row['id'], row['nombre'], row['categoria']) for row in self.cursor.fetchall()]
 
         print(f"✅ Referencias cargadas:")
         print(f"   - {len(self.especies)} especies")
@@ -280,9 +292,9 @@ class GeneradorEspecies:
 
         # Apellido
         if padre_id:
-            self.cursor.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
+            self.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
             result = self.cursor.fetchone()
-            apellido = result[0] if result and result[0] else random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
+            apellido = result['apellido'] if result and result['apellido'] else random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
         else:
             apellido = random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
 
@@ -303,16 +315,18 @@ class GeneradorEspecies:
         nivel_devoto = random.randint(3, 5)  # Sirvientes devotos
 
         # Insertar persona
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO personas (
                 nombre, apellido, genero, especie_id,
                 año_nacimiento, año_muerte,
                 padre_id, madre_id,
                 civilizacion_id, lugar_residencia_id,
                 clase_social,
-                inteligencia, fuerza, agilidad, resistencia, carisma,
-                dios_patron_id, nivel_devoto
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                inteligencia, resistencia,
+                dios_patron_id, nivel_devoto,
+                es_npc, es_jugador, nivel
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
         ''', (
             nombre, apellido, genero, especie_id,
             año_nacimiento, año_muerte,
@@ -320,21 +334,15 @@ class GeneradorEspecies:
             civ_id, lugar_id,
             clase_social,
             inteligencia,
-            random.randint(70, 95),  # fuerza
-            random.randint(70, 95),  # agilidad
             resistencia,
-            random.randint(60, 90),  # carisma
-            dios_patron_id, nivel_devoto
+            dios_patron_id, nivel_devoto,
+            True, False, 1
         ))
 
-        persona_id = self.cursor.lastrowid
+        result = self.cursor.fetchone()
+        persona_id = result['id'] if isinstance(result, dict) else result[0]
 
-        # Actualizar nombre completo
-        nombre_completo = f"{nombre} {apellido}"
-        self.cursor.execute('''
-            UPDATE personas SET nombre_completo = ?
-            WHERE id = ?
-        ''', (nombre_completo, persona_id))
+        # No es necesario actualizar nombre_completo, se genera automáticamente en PostgreSQL.
 
         self.conn.commit()
         return persona_id
@@ -387,16 +395,19 @@ class GeneradorEspecies:
 
     def crear_matrimonio(self, persona1_id: int, persona2_id: int, año_union: int) -> int:
         """Crea matrimonio entre dos personas"""
-        self.cursor.execute("SELECT lugar_residencia_id FROM personas WHERE id = ?", (persona1_id,))
-        lugar_id = self.cursor.fetchone()[0]
+        self.execute("SELECT lugar_residencia_id FROM personas WHERE id = ?", (persona1_id,))
+        lugar_id = self.cursor.fetchone()['lugar_residencia_id']
 
-        self.cursor.execute('''
+        self.execute('''
             INSERT INTO matrimonios (persona1_id, persona2_id, año_union, lugar_union_id)
             VALUES (?, ?, ?, ?)
+            RETURNING id
         ''', (persona1_id, persona2_id, año_union, lugar_id))
 
+        matrimonio_id = self.cursor.fetchone()['id']
+
         self.conn.commit()
-        return self.cursor.lastrowid
+        return matrimonio_id
 
     def generar_hijos(self, especie_nombre: str, padre_id: int, madre_id: int,
                      año_matrimonio: int) -> List[int]:
@@ -412,11 +423,12 @@ class GeneradorEspecies:
         num_hijos = random.randint(min_hijos, max_hijos)
 
         # Información de la madre
-        self.cursor.execute('''
+        self.execute('''
             SELECT año_nacimiento, año_muerte, especie_id
             FROM personas WHERE id = ?
         ''', (madre_id,))
-        año_nac_madre, año_muerte_madre, especie_id = self.cursor.fetchone()
+        result = self.cursor.fetchone()
+        año_nac_madre, año_muerte_madre, especie_id = result['año_nacimiento'], result['año_muerte'], result['especie_id']
 
         hijos_ids = []
 
@@ -438,7 +450,7 @@ class GeneradorEspecies:
         for i in range(num_hijos):
             # Verificar fertilidad de la madre
             edad_madre = año_actual - año_nac_madre
-            if edad_madre > config['edad_fertilidad_max'] or año_actual > año_muerte_madre:
+            if edad_madre > config['edad_fertilidad_max'] or (año_muerte_madre is not None and año_actual > año_muerte_madre):
                 break
 
             # Mortalidad infantil
@@ -462,6 +474,13 @@ class GeneradorEspecies:
 
             # Intervalo hasta el siguiente hijo
             año_actual += random.randint(3, 7)
+        
+        # Actualizar hijos totales en la tabla matrimonios
+        self.execute('''
+            UPDATE matrimonios
+            SET hijos_totales = ?
+            WHERE (persona1_id = ? AND persona2_id = ?) OR (persona1_id = ? AND persona2_id = ?)
+        ''', (len(hijos_ids), padre_id, madre_id, madre_id, padre_id))
 
         return hijos_ids
 
@@ -477,7 +496,8 @@ class GeneradorEspecies:
         # Obtener solteros en edad de matrimonio
         edad_min, edad_max = config['edad_matrimonio']
 
-        self.cursor.execute(f'''
+        # La consulta se ejecuta de forma segura con self.execute
+        self.execute(f'''
             SELECT id, genero, año_nacimiento
             FROM personas
             WHERE especie_id = ?
@@ -496,8 +516,8 @@ class GeneradorEspecies:
         solteros = self.cursor.fetchall()
 
         # Separar por género
-        hombres = [id for id, gen, _ in solteros if gen == 'masculino']
-        mujeres = [id for id, gen, _ in solteros if gen == 'femenino']
+        hombres = [row for row in solteros if row['genero'] == 'masculino']
+        mujeres = [row for row in solteros if row['genero'] == 'femenino']
 
         print(f"   Solteros: {len(hombres)} hombres, {len(mujeres)} mujeres")
 
@@ -511,8 +531,11 @@ class GeneradorEspecies:
         matrimonios_creados = 0
 
         for i in range(num_matrimonios):
-            esposo_id = hombres[i]
-            esposa_id = mujeres[i]
+            esposo = hombres[i]
+            esposa = mujeres[i]
+
+            esposo_id = esposo['id']
+            esposa_id = esposa['id']
 
             año_union = año_inicio + random.randint(0, 10)
 
@@ -537,8 +560,16 @@ class GeneradorEspecies:
         print(f"SIMULACIÓN COMPLETA: {especie_nombre}")
         print(f"{'='*70}")
 
-        # Generar población inicial
-        poblacion = self.generar_poblacion_inicial(especie_nombre, poblacion_inicial)
+        # Obtener población existente
+        especie_id = self.especies[especie_nombre]
+        self.execute("SELECT id FROM personas WHERE especie_id = ?", (especie_id,))
+        poblacion = [row['id'] for row in self.cursor.fetchall()]
+
+        if len(poblacion) == 0:
+             # Generar población inicial si no existe
+            poblacion = self.generar_poblacion_inicial(especie_nombre, poblacion_inicial)
+        else:
+            print(f"⚠️  {len(poblacion)} individuos existentes. Reanudando simulación.")
 
         # Simular por generaciones (cada 80 años aprox)
         config = ESPECIES_CONFIG[especie_nombre]
@@ -573,15 +604,20 @@ def main():
     print("Simulación: 1500-3000 (1500 años)")
     print("="*70)
 
-    generador = GeneradorEspecies()
+    try:
+        generador = GeneradorEspecies()
+    except Exception as e:
+        print(f"❌ Error al inicializar GeneradorEspecies: {e}")
+        print("Asegúrate de que la tabla 'especies' exista en tu base de datos de PostgreSQL.")
+        return
 
     # Poblaciones iniciales por especie
     poblaciones = {
-        'Tlacatl de Luz': 150,        # Sabios, diplomáticos
-        'Sombra-Coyotes': 100,        # Solitarios, menos población
-        'Bio-Constructores': 180,     # Naturaleza, agrícolas
-        'Acuátiles': 140,             # Comercio, exploración
-        'Guerreros Solares': 200,     # Guerreros, más población
+        'Tlacatl de Luz': 150,
+        'Sombra-Coyotes': 100,
+        'Bio-Constructores': 180,
+        'Acuátiles': 140,
+        'Guerreros Solares': 200,
     }
 
     print(f"\nPoblaciones iniciales (año 1500):")
@@ -602,13 +638,13 @@ def main():
 
     for especie_nombre in poblaciones.keys():
         especie_id = generador.especies[especie_nombre]
-        generador.cursor.execute('''
+        generador.execute('''
             SELECT COUNT(*) FROM personas WHERE especie_id = ?
         ''', (especie_id,))
-        total = generador.cursor.fetchone()[0]
+        total = generador.cursor.fetchone()['count']
         print(f"  {especie_nombre:25s}: {total:6d} individuos totales")
 
-    generador.conn.close()
+    generador.db.close()
     print("\n✅ Simulación completada")
 
 if __name__ == '__main__':
