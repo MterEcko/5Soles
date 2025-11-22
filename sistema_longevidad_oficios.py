@@ -11,29 +11,27 @@ Humanos pueden vivir hasta 200 años dependiendo de:
 - Eventos de vida (enfermedades, accidentes, bendiciones)
 """
 
-import sqlite3
+# Se eliminan las importaciones sqlite3 y se usa DatabaseConnector
 import random
 import json
+from database_connector import DatabaseConnector # Importación clave
 
 # ================================================================
-# LONGEVIDAD BASE POR OFICIO
+# LONGEVIDAD BASE POR OFICIO (Mantiene el mismo contenido)
 # ================================================================
-
 LONGEVIDAD_OFICIOS = {
     # RELIGIOSOS - Muy alta (140-200 años)
     'Sacerdote': (140, 200),
     'Sacerdotisa': (145, 200),
     'Augur': (130, 180),
     'Chamán': (125, 175),
-
     # CIENTÍFICOS - Alta (130-190 años)
     'Filósofo': (135, 195),
     'Astrónomo': (130, 190),
     'Matemático': (135, 195),
     'Naturalista': (125, 180),
-    'Alquimista': (120, 175),  # algo peligroso (experimentos)
-    'Cartógrafo': (115, 165),  # exploración moderada
-
+    'Alquimista': (120, 175),
+    'Cartógrafo': (115, 165),
     # TECNOLÓGICOS - Alta (120-180 años)
     'Bio-Ingeniero': (125, 185),
     'Tecnomístico': (130, 185),
@@ -42,14 +40,12 @@ LONGEVIDAD_OFICIOS = {
     'Ingeniero de Glifos': (125, 180),
     'Sintetizador': (120, 175),
     'Cultivador de Cristales': (120, 170),
-
     # SERVICIOS ESPECIALIZADOS - Media-Alta (110-160 años)
     'Arquitecto': (115, 165),
     'Escriba': (120, 170),
     'Curandero': (115, 165),
-
     # ARTESANALES - Media-Alta (100-150 años)
-    'Herrero': (95, 145),  # calor, esfuerzo físico
+    'Herrero': (95, 145),
     'Carpintero': (100, 150),
     'Alfarero': (105, 155),
     'Tejedor': (110, 160),
@@ -58,37 +54,31 @@ LONGEVIDAD_OFICIOS = {
     'Vidriero': (100, 150),
     'Perfumista': (110, 160),
     'Tatuador': (105, 155),
-
     # COMERCIALES - Media (100-145 años)
     'Comerciante': (105, 150),
     'Posadero': (95, 140),
-
     # AGRÍCOLAS - Media (90-140 años)
     'Agricultor': (90, 140),
     'Pastor': (95, 145),
-    'Pescador': (85, 135),  # peligros del mar
-    'Cazador': (80, 130),  # peligros de caza
-
+    'Pescador': (85, 135),
+    'Cazador': (80, 130),
     # SERVICIOS - Media (90-135 años)
     'Cocinero': (95, 140),
-    'Minero': (75, 120),  # trabajo duro, peligroso
+    'Minero': (75, 120),
     'Cantinero': (90, 135),
-    'Mensajero': (85, 130),  # viajes, peligros
-
+    'Mensajero': (85, 130),
     # SOCIALES - Media-Baja (80-130 años)
     'Bardo': (90, 140),
-    'Prostituta': (70, 115),  # vida difícil, enfermedades
+    'Prostituta': (70, 115),
     'Prostituto': (70, 115),
-
     # MILITARES - Baja (70-120 años)
     'Guerrero': (65, 115),
     'Arquero': (70, 120),
     'Capitán': (75, 125),
-    'Estratega': (85, 135),  # menos combate directo
+    'Estratega': (85, 135),
     'Guardián': (75, 125),
     'Guardaespaldas': (70, 120),
     'Vigilante Nocturno': (75, 125),
-
     # CRIMINALES - Muy Baja (50-100 años)
     'Ladrón': (60, 105),
     'Asesino': (50, 95),
@@ -97,7 +87,7 @@ LONGEVIDAD_OFICIOS = {
 }
 
 # ================================================================
-# MODIFICADORES DE HÁBITOS
+# MODIFICADORES DE HÁBITOS Y CLASE SOCIAL (Mantiene el mismo contenido)
 # ================================================================
 
 HABITOS_VIDA = {
@@ -105,62 +95,88 @@ HABITOS_VIDA = {
         'nombre': 'Vida Ejemplar',
         'descripcion': 'Alimentación balanceada, ejercicio regular, meditación, descanso adecuado',
         'modificador': 1.25,
-        'probabilidad': 0.10  # 10% de la población
+        'probabilidad': 0.10
     },
     'bueno': {
         'nombre': 'Buenos Hábitos',
         'descripcion': 'Alimentación saludable, actividad física moderada, buen descanso',
         'modificador': 1.15,
-        'probabilidad': 0.25  # 25%
+        'probabilidad': 0.25
     },
     'promedio': {
         'nombre': 'Hábitos Normales',
         'descripcion': 'Alimentación común, actividad moderada',
         'modificador': 1.0,
-        'probabilidad': 0.45  # 45%
+        'probabilidad': 0.45
     },
     'malo': {
         'nombre': 'Malos Hábitos',
         'descripcion': 'Alimentación pobre, sedentarismo, poco descanso',
         'modificador': 0.85,
-        'probabilidad': 0.15  # 15%
+        'probabilidad': 0.15
     },
     'pesimo': {
         'nombre': 'Vida Destructiva',
         'descripcion': 'Alcoholismo, drogas, violencia, desnutrición',
         'modificador': 0.65,
-        'probabilidad': 0.05  # 5%
+        'probabilidad': 0.05
     }
 }
 
-# ================================================================
-# MODIFICADORES POR CLASE SOCIAL
-# ================================================================
-
 MODIFICADOR_CLASE_SOCIAL = {
-    'sacerdote': 1.20,      # acceso a conocimiento médico
+    'sacerdote': 1.20,
     'sacerdotisa': 1.20,
-    'noble': 1.15,          # mejor alimentación y cuidados
-    'artesano': 1.05,       # vida estable
-    'campesino': 0.95,      # trabajo duro
-    'guerrero': 0.90,       # vida peligrosa
-    'esclavo': 0.70,        # condiciones terribles
+    'noble': 1.15,
+    'artesano': 1.05,
+    'campesino': 0.95,
+    'guerrero': 0.90,
+    'esclavo': 0.70,
 }
 
 # ================================================================
-# CALCULADOR DE LONGEVIDAD
+# CALCULADOR DE LONGEVIDAD (ADAPTADO A POSTGRESQL)
 # ================================================================
 
 class CalculadorLongevidad:
-    def __init__(self, db_path='quinto_sol.db'):
-        self.conn = sqlite3.connect(db_path)
-        self.cursor = self.conn.cursor()
+    # Se elimina db_path y se usa DatabaseConnector
+    def __init__(self):
+        self.db = DatabaseConnector()
+        self.conn = self.db.connect()
+        self.cursor = self.db.cursor
         self.cargar_oficios()
+
+    def execute_query(self, query, params=None):
+        """Wrapper para adaptar placeholders de SQLite (?) a PostgreSQL (%s)"""
+        # Hacemos el reemplazo solo si estamos en postgres Y vemos '?'
+        if self.db.db_type == 'postgres' and '?' in query:
+            query = query.replace('?', '%s')
+            
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+
+    def fetchone(self):
+        """Retorna un único resultado (diccionario en PostgreSQL)"""
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        """Retorna todos los resultados (lista de diccionarios en PostgreSQL)"""
+        return self.cursor.fetchall()
+
+    def commit(self):
+        """Realiza commit"""
+        self.conn.commit()
+
+    def close(self):
+        """Cierra la conexión"""
+        self.db.close()
 
     def cargar_oficios(self):
         """Carga oficios de la BD"""
-        self.cursor.execute("SELECT id, nombre FROM oficios")
-        self.oficios = {id: nombre for id, nombre in self.cursor.fetchall()}
+        self.execute_query("SELECT id, nombre FROM oficios")
+        # Acceso por clave de diccionario para PostgreSQL
+        self.oficios = {row['id']: row['nombre'] for row in self.fetchall()}
         print(f"✅ {len(self.oficios)} oficios cargados")
 
     def seleccionar_habito_vida(self) -> str:
@@ -179,19 +195,22 @@ class CalculadorLongevidad:
         """Calcula longevidad para una persona específica"""
 
         # Obtener datos de la persona
-        self.cursor.execute('''
+        self.execute_query('''
             SELECT p.clase_social, p.año_nacimiento,
                    po.oficio_id
             FROM personas p
-            LEFT JOIN personas_oficios po ON p.id = po.persona_id
-            WHERE p.id = ?
+            LEFT JOIN persona_oficios po ON p.id = po.persona_id
+            WHERE p.id = %s
         ''', (persona_id,))
 
-        result = self.cursor.fetchone()
+        result = self.fetchone()
         if not result:
             return None
 
-        clase_social, año_nacimiento, oficio_id = result
+        # Acceso por clave de diccionario
+        clase_social = result.get('clase_social')
+        año_nacimiento = result.get('año_nacimiento')
+        oficio_id = result.get('oficio_id')
 
         # Obtener nombre del oficio
         if oficio_id:
@@ -215,7 +234,6 @@ class CalculadorLongevidad:
         mod_clase = MODIFICADOR_CLASE_SOCIAL.get(clase_social, 1.0)
 
         # Eventos especiales (bendiciones, maldiciones, accidentes)
-        # TODO: Integrar con sistema de eventos divinos
         mod_eventos = random.uniform(0.90, 1.10)
 
         # Cálculo final
@@ -246,10 +264,10 @@ class CalculadorLongevidad:
             return False
 
         # Actualizar año de muerte
-        self.cursor.execute('''
+        self.execute_query('''
             UPDATE personas
-            SET año_muerte = ?
-            WHERE id = ?
+            SET año_muerte = %s
+            WHERE id = %s
         ''', (resultado['año_muerte_calculado'], persona_id))
 
         # Guardar información de longevidad en JSON
@@ -265,27 +283,33 @@ class CalculadorLongevidad:
             'longevidad_final': resultado['longevidad_final']
         }
 
-        # Actualizar campo personalidad o crear uno nuevo para info_salud
-        # Por ahora lo guardaremos en el sistema de eventos
-        self.cursor.execute('''
-            SELECT personalidad FROM personas WHERE id = ?
+        # Actualizar campo personalidad (asumiendo que puede ser NULL o TEXT JSON)
+        self.execute_query('''
+            SELECT notas_especiales FROM personas WHERE id = %s
         ''', (persona_id,))
-        pers = self.cursor.fetchone()[0]
+        
+        # Usamos notas_especiales, ya que 'personalidad' no estaba en el schema anterior
+        pers_raw = self.fetchone()
+        pers = pers_raw['notas_especiales'] if pers_raw else None 
 
         if pers:
-            pers_dict = json.loads(pers) if pers else {}
+            # Manejar el caso de que el campo sea realmente un JSON string
+            try:
+                pers_dict = json.loads(pers)
+            except json.JSONDecodeError:
+                pers_dict = {}
         else:
             pers_dict = {}
 
         pers_dict['info_longevidad'] = info_longevidad
 
-        self.cursor.execute('''
+        self.execute_query('''
             UPDATE personas
-            SET personalidad = ?
-            WHERE id = ?
+            SET notas_especiales = %s
+            WHERE id = %s
         ''', (json.dumps(pers_dict), persona_id))
 
-        self.conn.commit()
+        self.commit()
         return True
 
     def actualizar_longevidad_masiva(self, limite: int = None):
@@ -294,7 +318,7 @@ class CalculadorLongevidad:
         print("ACTUALIZACIÓN MASIVA DE LONGEVIDAD POR OFICIO")
         print("="*70)
 
-        # Obtener todos los humanos
+        # Obtener todos los humanos (usando JOIN)
         query = '''
             SELECT p.id
             FROM personas p
@@ -305,8 +329,9 @@ class CalculadorLongevidad:
         if limite:
             query += f" LIMIT {limite}"
 
-        self.cursor.execute(query)
-        humanos_ids = [row[0] for row in self.cursor.fetchall()]
+        self.execute_query(query)
+        # Acceso por clave de diccionario
+        humanos_ids = [row['id'] for row in self.fetchall()]
 
         print(f"\n📊 Total humanos a procesar: {len(humanos_ids)}")
         print("\nActualizando...")
@@ -330,18 +355,22 @@ class CalculadorLongevidad:
         print(f"  ❌ Fallidos: {fallidos}")
 
         # Estadísticas de longevidad
-        self.cursor.execute('''
+        self.execute_query('''
             SELECT
-                AVG(año_muerte - año_nacimiento) as promedio,
-                MIN(año_muerte - año_nacimiento) as minimo,
-                MAX(año_muerte - año_nacimiento) as maximo
+                AVG(p.año_muerte - p.año_nacimiento) as promedio,
+                MIN(p.año_muerte - p.año_nacimiento) as minimo,
+                MAX(p.año_muerte - p.año_nacimiento) as maximo
             FROM personas p
             JOIN especies e ON p.especie_id = e.id
             WHERE e.nombre = 'Humanos I'
-            AND año_muerte IS NOT NULL
+            AND p.año_muerte IS NOT NULL
         ''')
 
-        prom, minimo, maximo = self.cursor.fetchone()
+        # Acceso por clave de diccionario
+        stats = self.fetchone()
+        prom = stats['promedio']
+        minimo = stats['minimo']
+        maximo = stats['maximo']
 
         print(f"\n📈 ESTADÍSTICAS DE LONGEVIDAD:")
         print(f"  Promedio: {prom:.1f} años")
@@ -361,16 +390,16 @@ class CalculadorLongevidad:
         ]
 
         for min_r, max_r, etiqueta in rangos:
-            self.cursor.execute('''
+            self.execute_query('''
                 SELECT COUNT(*)
                 FROM personas p
                 JOIN especies e ON p.especie_id = e.id
                 WHERE e.nombre = 'Humanos I'
-                AND (año_muerte - año_nacimiento) >= ?
-                AND (año_muerte - año_nacimiento) < ?
+                AND (p.año_muerte - p.año_nacimiento) >= %s
+                AND (p.año_muerte - p.año_nacimiento) < %s
             ''', (min_r, max_r))
 
-            count = self.cursor.fetchone()[0]
+            count = self.fetchone()['count']
             porcentaje = (count / len(humanos_ids)) * 100 if humanos_ids else 0
             print(f"  {min_r:3d}-{max_r:3d} años ({etiqueta:12s}): {count:5d} ({porcentaje:5.1f}%)")
 
@@ -380,7 +409,7 @@ class CalculadorLongevidad:
         print("REPORTE: LONGEVIDAD PROMEDIO POR OFICIO")
         print("="*70)
 
-        self.cursor.execute('''
+        self.execute_query('''
             SELECT
                 o.nombre as oficio,
                 COUNT(DISTINCT p.id) as cantidad,
@@ -389,20 +418,21 @@ class CalculadorLongevidad:
                 MAX(p.año_muerte - p.año_nacimiento) as max_vida
             FROM personas p
             JOIN especies e ON p.especie_id = e.id
-            JOIN personas_oficios po ON p.id = po.persona_id
+            JOIN persona_oficios po ON p.id = po.persona_id
             JOIN oficios o ON po.oficio_id = o.id
             WHERE e.nombre = 'Humanos I'
             AND p.año_muerte IS NOT NULL
             GROUP BY o.nombre
-            HAVING cantidad > 0
+            HAVING COUNT(DISTINCT p.id) > 0
             ORDER BY promedio_vida DESC
         ''')
 
         print(f"\n{'Oficio':<25s} {'Cant.':>6s} {'Prom.':>7s} {'Min':>6s} {'Max':>6s}")
         print("-" * 70)
 
-        for oficio, cant, prom, minv, maxv in self.cursor.fetchall():
-            print(f"{oficio:<25s} {cant:6d} {prom:7.1f} {minv:6.0f} {maxv:6.0f}")
+        # Acceso por clave de diccionario
+        for row in self.fetchall():
+            print(f"{row['oficio']:<25s} {row['cantidad']:6d} {row['promedio_vida']:7.1f} {row['min_vida']:6.0f} {row['max_vida']:6.0f}")
 
 def main():
     """Función principal"""
@@ -442,7 +472,7 @@ def main():
         for oficio, (min_v, max_v) in sorted(LONGEVIDAD_OFICIOS.items(), key=lambda x: x[1][1], reverse=True):
             print(f"  {oficio:<30s}: {min_v:3d}-{max_v:3d} años")
 
-    calculador.conn.close()
+    calculador.close() # Usar el método close adaptado
     print("\n✅ Proceso completado")
 
 if __name__ == '__main__':

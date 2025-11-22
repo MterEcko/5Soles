@@ -145,8 +145,10 @@ class GeneradorEspecies:
 
     def execute(self, query, params=None):
         """Wrapper para asegurar compatibilidad de placeholders"""
+        # Hacemos el reemplazo solo si estamos en postgres Y vemos '?'
         if self.db.db_type == 'postgres' and '?' in query:
             query = query.replace('?', '%s')
+            
         if params:
             self.cursor.execute(query, params)
         else:
@@ -287,14 +289,17 @@ class GeneradorEspecies:
         # Civilización y lugar
         civ_nombre = config['civilizacion_patron']
         civ_id = self.civilizaciones.get(civ_nombre)
+        
+        # El lugar asociado a la civilización puede no existir
         lugares_civ = self.lugares.get(civ_id, [])
         lugar_id = random.choice(lugares_civ)[0] if lugares_civ else None
 
         # Apellido
         if padre_id:
+            # Consulta adaptada a PostgreSQL usando el wrapper
             self.execute("SELECT apellido FROM personas WHERE id = ?", (padre_id,))
             result = self.cursor.fetchone()
-            apellido = result['apellido'] if result and result['apellido'] else random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
+            apellido = result['apellido'] if result and result.get('apellido') else random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
         else:
             apellido = random.choice(APELLIDOS_POR_ESPECIE[especie_nombre])
 
@@ -314,8 +319,11 @@ class GeneradorEspecies:
         dios_patron_id = self.dioses.get(dios_patron_nombre)
         nivel_devoto = random.randint(3, 5)  # Sirvientes devotos
 
-        # Insertar persona
-        self.execute('''
+        # -------------------------------------------------------------------
+        # CORRECCIÓN DE SYNTAX/TIPO: Reescribir el INSERT con %s (PostgreSQL)
+        # 18 placeholders
+        # -------------------------------------------------------------------
+        query = '''
             INSERT INTO personas (
                 nombre, apellido, genero, especie_id,
                 año_nacimiento, año_muerte,
@@ -325,9 +333,10 @@ class GeneradorEspecies:
                 inteligencia, resistencia,
                 dios_patron_id, nivel_devoto,
                 es_npc, es_jugador, nivel
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (
+        '''
+        params = (
             nombre, apellido, genero, especie_id,
             año_nacimiento, año_muerte,
             padre_id, madre_id,
@@ -336,16 +345,18 @@ class GeneradorEspecies:
             inteligencia,
             resistencia,
             dios_patron_id, nivel_devoto,
-            True, False, 1
-        ))
+            True, False, 1 # es_npc, es_jugador, nivel
+        )
+        
+        # Ejecución directa con sintaxis PostgreSQL
+        self.cursor.execute(query, params)
 
         result = self.cursor.fetchone()
-        persona_id = result['id'] if isinstance(result, dict) else result[0]
-
-        # No es necesario actualizar nombre_completo, se genera automáticamente en PostgreSQL.
+        persona_id = result['id']
 
         self.conn.commit()
         return persona_id
+
 
     def generar_poblacion_inicial(self, especie_nombre: str, cantidad: int) -> List[int]:
         """Genera población inicial para una especie (año 1500)"""
@@ -398,11 +409,13 @@ class GeneradorEspecies:
         self.execute("SELECT lugar_residencia_id FROM personas WHERE id = ?", (persona1_id,))
         lugar_id = self.cursor.fetchone()['lugar_residencia_id']
 
-        self.execute('''
+        # Adaptación para PostgreSQL: Uso de %s y RETURNING
+        query = '''
             INSERT INTO matrimonios (persona1_id, persona2_id, año_union, lugar_union_id)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
             RETURNING id
-        ''', (persona1_id, persona2_id, año_union, lugar_id))
+        '''
+        self.cursor.execute(query, (persona1_id, persona2_id, año_union, lugar_id))
 
         matrimonio_id = self.cursor.fetchone()['id']
 
@@ -475,11 +488,11 @@ class GeneradorEspecies:
             # Intervalo hasta el siguiente hijo
             año_actual += random.randint(3, 7)
         
-        # Actualizar hijos totales en la tabla matrimonios
+        # Actualizar hijos totales en la tabla matrimonios (usando %s)
         self.execute('''
             UPDATE matrimonios
-            SET hijos_totales = ?
-            WHERE (persona1_id = ? AND persona2_id = ?) OR (persona1_id = ? AND persona2_id = ?)
+            SET hijos_totales = %s
+            WHERE (persona1_id = %s AND persona2_id = %s) OR (persona1_id = %s AND persona2_id = %s)
         ''', (len(hijos_ids), padre_id, madre_id, madre_id, padre_id))
 
         return hijos_ids
@@ -495,16 +508,19 @@ class GeneradorEspecies:
 
         # Obtener solteros en edad de matrimonio
         edad_min, edad_max = config['edad_matrimonio']
-
+        
+        # Generar placeholders (?) para la lista de IDs de la población actual
+        id_placeholders = ','.join(['?'] * len(poblacion_actual))
+        
         # La consulta se ejecuta de forma segura con self.execute
         self.execute(f'''
             SELECT id, genero, año_nacimiento
             FROM personas
             WHERE especie_id = ?
-            AND id IN ({','.join('?' * len(poblacion_actual))})
+            AND id IN ({id_placeholders})
             AND año_nacimiento <= ?
             AND año_nacimiento >= ?
-            AND año_muerte >= ?
+            AND (año_muerte IS NULL OR año_muerte >= ?) -- Asegura que estén vivos al inicio del periodo
             AND id NOT IN (
                 SELECT persona1_id FROM matrimonios WHERE año_union <= ?
                 UNION
@@ -551,6 +567,8 @@ class GeneradorEspecies:
                 print(f"      {matrimonios_creados} matrimonios, {len(nuevos_individuos)} hijos...")
 
         print(f"   ✅ {matrimonios_creados} matrimonios, {len(nuevos_individuos)} nuevos individuos")
+
+        # Falta simular muertes aquí, pero por ahora solo manejamos el crecimiento poblacional.
 
         return poblacion_actual + nuevos_individuos
 
