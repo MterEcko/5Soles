@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS personas (
     es_npc BOOLEAN DEFAULT 1,
     es_jugador BOOLEAN DEFAULT 0,
     nivel INTEGER DEFAULT 1,
+	es_hibrido BOOLEAN DEFAULT FALSE,
 
     FOREIGN KEY (especie_id) REFERENCES especies(id),
     FOREIGN KEY (padre_id) REFERENCES personas(id),

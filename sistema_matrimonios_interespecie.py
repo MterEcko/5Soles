@@ -3,31 +3,26 @@
 """
 Sistema de Matrimonios Inter-Especies e Híbridos
 Portales del Quinto Sol
-
-Permite matrimonios entre especies y genera híbridos:
-- Verificación de compatibilidad
-- Híbridos con stats promedio
-- Rasgos mezclados
-- Aceptación social variable
-- Comunidades híbridas
+ADAPTADO A POSTGRESQL (DatabaseConnector)
 """
 
-import sqlite3
 import random
 import json
+import re 
 from typing import List, Tuple, Optional, Dict
+from database_connector import DatabaseConnector # Importación clave
 
 # ================================================================
 # CONFIGURACIÓN DE COMPATIBILIDAD
 # ================================================================
 
 COMPATIBILIDAD_BASE = {
-    # (Especie1, Especie2): {puede_reproducirse, prob_concepcion, prob_esterilidad, aceptacion_social, vigor}
+    # (Especie1, Especie2): {reproducirse, prob_concepcion, prob_esterilidad, aceptacion_social, vigor, taboo, bendicion_req}
 
     # HUMANOS con especies sirvientes (ALTA compatibilidad - mismo origen divino)
     ('Humanos I', 'Tlacatl de Luz'): {
         'reproducirse': True,
-        'prob_concepcion': 0.5,  # 50% vs 70% normal
+        'prob_concepcion': 0.5,
         'prob_esterilidad': 0.15,
         'aceptacion': 65,
         'vigor': True,
@@ -38,15 +33,15 @@ COMPATIBILIDAD_BASE = {
         'reproducirse': True,
         'prob_concepcion': 0.4,
         'prob_esterilidad': 0.25,
-        'aceptacion': 40,  # Menos aceptados (nocturnas)
+        'aceptacion': 40,
         'vigor': True,
-        'taboo': True,  # Algo tabú
+        'taboo': True,
         'bendicion_req': False
     },
     ('Humanos I', 'Bio-Constructores'): {
         'reproducirse': True,
         'prob_concepcion': 0.55,
-        'prob_esterilidad': 0.10,  # Muy fértiles
+        'prob_esterilidad': 0.10,
         'aceptacion': 70,
         'vigor': True,
         'taboo': False,
@@ -65,7 +60,7 @@ COMPATIBILIDAD_BASE = {
         'reproducirse': True,
         'prob_concepcion': 0.40,
         'prob_esterilidad': 0.18,
-        'aceptacion': 75,  # Muy respetados
+        'aceptacion': 75,
         'vigor': True,
         'taboo': False,
         'bendicion_req': False
@@ -79,14 +74,14 @@ COMPATIBILIDAD_BASE = {
         'aceptacion': 55,
         'vigor': True,
         'taboo': False,
-        'bendicion_req': True  # Requiere bendición
+        'bendicion_req': True
     },
     ('Sombra-Coyotes', 'Guerreros Solares'): {
         'reproducirse': True,
-        'prob_concepcion': 0.20,  # Opuestos (noche/día)
+        'prob_concepcion': 0.20,
         'prob_esterilidad': 0.50,
-        'aceptacion': 25,  # Mal visto
-        'vigor': False,  # Debilidad híbrida
+        'aceptacion': 25,
+        'vigor': False,
         'taboo': True,
         'bendicion_req': True
     },
@@ -123,31 +118,44 @@ HABILIDADES_HIBRIDAS = {
 }
 
 # ================================================================
-# GENERADOR DE HÍBRIDOS
+# GENERADOR DE HÍBRIDOS (ADAPTADO A POSTGRESQL)
 # ================================================================
 
 class GeneradorHibridos:
-    def __init__(self, db_path='quinto_sol.db'):
-        self.conn = sqlite3.connect(db_path)
-        self.cursor = self.conn.cursor()
+    def __init__(self):
+        self.db = DatabaseConnector()
+        self.conn = self.db.connect()
+        self.cursor = self.db.cursor
         self.cargar_especies()
+
+    def execute_query(self, query, params=None):
+        """Wrapper para adaptar placeholders de SQLite (?) a PostgreSQL (%s)"""
+        if self.db.db_type == 'postgres':
+            query = query.replace('?', '%s')
+            
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def commit(self):
+        self.conn.commit()
+    
+    def close(self):
+        self.db.close()
+
 
     def cargar_especies(self):
         """Carga especies de la BD"""
-        self.cursor.execute("SELECT id, nombre FROM especies")
-        self.especies = {nombre: id for id, nombre in self.cursor.fetchall()}
+        self.execute_query("SELECT id, nombre FROM especies")
+        self.especies = {row['nombre']: row['id'] for row in self.fetchall()}
         print(f"✅ {len(self.especies)} especies cargadas")
-
-    def aplicar_schema(self):
-        """Aplica schema de matrimonios inter-especies"""
-        print("\n📋 Aplicando schema de matrimonios inter-especies...")
-
-        with open('schema_matrimonios_interespecie.sql', 'r', encoding='utf-8') as f:
-            schema_sql = f.read()
-
-        self.conn.executescript(schema_sql)
-        self.conn.commit()
-        print("✅ Schema aplicado")
 
     def poblar_compatibilidad(self):
         """Pobla tabla de compatibilidad"""
@@ -162,13 +170,16 @@ class GeneradorHibridos:
 
             # Insertar en ambas direcciones
             for e1, e2 in [(esp1_id, esp2_id), (esp2_id, esp1_id)]:
-                self.cursor.execute('''
-                    INSERT OR REPLACE INTO compatibilidad_especies (
+                # Uso de %s y ON CONFLICT DO UPDATE
+                self.execute_query('''
+                    INSERT INTO compatibilidad_especies (
                         especie_1_id, especie_2_id, puede_reproducirse,
                         probabilidad_concepcion, probabilidad_esterilidad_hibrido,
                         aceptacion_social, vigor_hibrido, taboo_cultural,
                         bendicion_divina_requerida
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (especie_1_id, especie_2_id) DO UPDATE
+                    SET probabilidad_concepcion = EXCLUDED.probabilidad_concepcion
                 ''', (
                     e1, e2, config['reproducirse'],
                     config['prob_concepcion'], config['prob_esterilidad'],
@@ -176,70 +187,76 @@ class GeneradorHibridos:
                     config['taboo'], config['bendicion_req']
                 ))
 
-        self.conn.commit()
+        self.commit()
         print(f"✅ Compatibilidad configurada para {len(COMPATIBILIDAD_BASE)} parejas de especies")
 
     def verificar_compatibilidad(self, especie1_id: int, especie2_id: int) -> Optional[Dict]:
         """Verifica si dos especies pueden tener hijos"""
-        self.cursor.execute('''
+        # Asegurar el orden de búsqueda para clave única
+        if especie1_id > especie2_id:
+             especie1_id, especie2_id = especie2_id, especie1_id
+
+        self.execute_query('''
             SELECT puede_reproducirse, probabilidad_concepcion,
                    probabilidad_esterilidad_hibrido, aceptacion_social,
                    vigor_hibrido, taboo_cultural, bendicion_divina_requerida
             FROM compatibilidad_especies
-            WHERE especie_1_id = ? AND especie_2_id = ?
+            WHERE especie_1_id = %s AND especie_2_id = %s
         ''', (especie1_id, especie2_id))
 
-        result = self.cursor.fetchone()
+        result = self.fetchone()
 
-        if not result or not result[0]:
+        if not result or not result['puede_reproducirse']:
             return None
 
         return {
-            'prob_concepcion': result[1],
-            'prob_esterilidad': result[2],
-            'aceptacion': result[3],
-            'vigor': result[4],
-            'taboo': result[5],
-            'bendicion_req': result[6]
+            'prob_concepcion': result['probabilidad_concepcion'],
+            'prob_esterilidad': result['probabilidad_esterilidad_hibrido'],
+            'aceptacion': result['aceptacion_social'],
+            'vigor': result['vigor_hibrido'],
+            'taboo': result['taboo_cultural'],
+            'bendicion_req': result['bendicion_divina_requerida']
         }
 
     def crear_matrimonio_interespecie(self, persona1_id: int, persona2_id: int,
                                      año_union: int) -> Optional[int]:
         """Crea matrimonio entre especies diferentes"""
 
-        # Obtener especies de ambos
-        self.cursor.execute('''
-            SELECT especie_id FROM personas WHERE id = ?
+        self.execute_query('''
+            SELECT especie_id FROM personas WHERE id = %s
         ''', (persona1_id,))
-        esp1_id = self.cursor.fetchone()[0]
+        esp1_id = self.fetchone()['especie_id']
 
-        self.cursor.execute('''
-            SELECT especie_id FROM personas WHERE id = ?
+        self.execute_query('''
+            SELECT especie_id FROM personas WHERE id = %s
         ''', (persona2_id,))
-        esp2_id = self.cursor.fetchone()[0]
+        esp2_id = self.fetchone()['especie_id']
 
-        # Misma especie = matrimonio normal
         if esp1_id == esp2_id:
             return None
+        
+        # Asegurar orden para verificar compatibilidad (especie_1_id < especie_2_id)
+        esp_comp1_id = min(esp1_id, esp2_id)
+        esp_comp2_id = max(esp1_id, esp2_id)
 
-        # Verificar compatibilidad
-        compat = self.verificar_compatibilidad(esp1_id, esp2_id)
+        compat = self.verificar_compatibilidad(esp_comp1_id, esp_comp2_id)
 
         if not compat:
-            return None  # No pueden casarse
+            return None
 
-        # Crear matrimonio normal
-        self.cursor.execute('''
-            SELECT lugar_residencia_id FROM personas WHERE id = ?
+        self.execute_query('''
+            SELECT lugar_residencia_id FROM personas WHERE id = %s
         ''', (persona1_id,))
-        lugar_id = self.cursor.fetchone()[0]
+        lugar_id = self.fetchone()['lugar_residencia_id']
 
-        self.cursor.execute('''
+        # Crear matrimonio normal (con RETURNING id)
+        query_matrimonio = '''
             INSERT INTO matrimonios (persona1_id, persona2_id, año_union, lugar_union_id)
-            VALUES (?, ?, ?, ?)
-        ''', (persona1_id, persona2_id, año_union, lugar_id))
-
-        matrimonio_id = self.cursor.lastrowid
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        '''
+        self.execute_query(query_matrimonio, (persona1_id, persona2_id, año_union, lugar_id))
+        matrimonio_id = self.fetchone()['id']
 
         # Reacción social
         aprobacion_base = compat['aceptacion']
@@ -248,27 +265,27 @@ class GeneradorHibridos:
 
         escandalo = compat['taboo'] and random.random() < 0.3
 
-        # Bendición divina (si es requerida o por suerte)
+        # Bendición divina
         bendicion = False
         dios_bendijo = None
         dios_maldijo = None
 
         if compat['bendicion_req'] or random.random() < 0.15:
-            if random.random() < 0.7:  # 70% bendición, 30% maldición
+            if random.random() < 0.7:
                 bendicion = True
-                self.cursor.execute('SELECT id FROM dioses ORDER BY RANDOM() LIMIT 1')
-                dios_bendijo = self.cursor.fetchone()[0]
+                self.execute_query('SELECT id FROM dioses ORDER BY RANDOM() LIMIT 1')
+                dios_bendijo = self.fetchone()['id']
             else:
-                self.cursor.execute('SELECT id FROM dioses ORDER BY RANDOM() LIMIT 1')
-                dios_maldijo = self.cursor.fetchone()[0]
+                self.execute_query('SELECT id FROM dioses ORDER BY RANDOM() LIMIT 1')
+                dios_maldijo = self.fetchone()['id']
 
         # Registrar evento
-        self.cursor.execute('''
+        self.execute_query('''
             INSERT INTO matrimonios_interespecie_eventos (
                 matrimonio_id, especie_1_id, especie_2_id, año_union,
                 aprobacion_familia_1, aprobacion_familia_2, escandalo_publico,
                 bendicion_divina, dios_bendijo_id, dios_maldijo_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (
             matrimonio_id, esp1_id, esp2_id, año_union,
             aprobacion_1, aprobacion_2, escandalo,
@@ -276,14 +293,14 @@ class GeneradorHibridos:
         ))
 
         # Mejorar relación diplomática entre especies
-        self.cursor.execute('''
+        self.execute_query('''
             UPDATE diplomacia_especies
             SET nivel_relacion = nivel_relacion + 5
-            WHERE (especie_id = ? AND especie_objetivo_id = ?)
-               OR (especie_id = ? AND especie_objetivo_id = ?)
+            WHERE (especie_id = %s AND especie_objetivo_id = %s)
+               OR (especie_id = %s AND especie_objetivo_id = %s)
         ''', (esp1_id, esp2_id, esp2_id, esp1_id))
 
-        self.conn.commit()
+        self.commit()
         return matrimonio_id
 
     def crear_hibrido(self, nombre: str, genero: str, año_nacimiento: int,
@@ -291,75 +308,83 @@ class GeneradorHibridos:
         """Crea un hijo híbrido"""
 
         # Obtener info de los padres
-        self.cursor.execute('''
+        self.execute_query('''
             SELECT especie_id, civilizacion_id, lugar_residencia_id
-            FROM personas WHERE id = ?
+            FROM personas WHERE id = %s
         ''', (padre_id,))
-        esp_padre_id, civ_id, lugar_id = self.cursor.fetchone()
+        padre_info = self.fetchone()
+        esp_padre_id, civ_id, lugar_id = padre_info['especie_id'], padre_info['civilizacion_id'], padre_info['lugar_residencia_id']
 
-        self.cursor.execute('''
-            SELECT especie_id FROM personas WHERE id = ?
+        self.execute_query('''
+            SELECT especie_id FROM personas WHERE id = %s
         ''', (madre_id,))
-        esp_madre_id = self.cursor.fetchone()[0]
+        esp_madre_id = self.fetchone()['especie_id']
+        
+        # Asegurar orden para verificar compatibilidad
+        esp_comp1_id = min(esp_padre_id, esp_madre_id)
+        esp_comp2_id = max(esp_padre_id, esp_madre_id)
 
-        # Verificar compatibilidad
-        compat = self.verificar_compatibilidad(esp_padre_id, esp_madre_id)
+        compat = self.verificar_compatibilidad(esp_comp1_id, esp_comp2_id)
+        if not compat: return 0
 
-        if not compat:
-            return 0  # No pueden tener hijos
-
-        # Probabilidad de concepción
-        if random.random() > compat['prob_concepcion']:
-            return 0  # No conciben
+        if random.random() > compat['prob_concepcion']: return 0
 
         # Obtener nombres de especies
-        self.cursor.execute('SELECT nombre FROM especies WHERE id = ?', (esp_padre_id,))
-        esp_padre_nombre = self.cursor.fetchone()[0]
+        self.execute_query('SELECT nombre FROM especies WHERE id = %s', (esp_padre_id,))
+        esp_padre_nombre = self.fetchone()['nombre']
 
-        self.cursor.execute('SELECT nombre FROM especies WHERE id = ?', (esp_madre_id,))
-        esp_madre_nombre = self.cursor.fetchone()[0]
+        self.execute_query('SELECT nombre FROM especies WHERE id = %s', (esp_madre_id,))
+        esp_madre_nombre = self.fetchone()['nombre']
 
-        # Seleccionar especie "dominante" para la persona (campo especie_id)
-        # 50/50 pero podría ser por dominancia genética
+        # Seleccionar especie "dominante" para el campo especie_id
         especie_dominante_id = random.choice([esp_padre_id, esp_madre_id])
 
-        # Stats promedio de ambas especies + vigor/debilidad
+        # Stats
         stats_base = self.calcular_stats_hibrido(esp_padre_id, esp_madre_id, compat['vigor'])
 
-        # Longevidad promedio
-        self.cursor.execute('''
-            SELECT AVG(año_muerte - año_nacimiento)
+        # Longevidad
+        self.execute_query('''
+            SELECT AVG(año_muerte - año_nacimiento) AS avg_life
             FROM personas
-            WHERE especie_id IN (?, ?) AND año_muerte IS NOT NULL
+            WHERE especie_id IN (%s, %s) AND año_muerte IS NOT NULL
             LIMIT 100
         ''', (esp_padre_id, esp_madre_id))
 
-        longevidad_promedio = self.cursor.fetchone()[0] or 150
+        longevidad_promedio_row = self.fetchone()
+        # Convertir a float para cálculo seguro
+        longevidad_promedio = float(longevidad_promedio_row['avg_life']) if longevidad_promedio_row['avg_life'] is not None else 150.0
 
         # Apellido del padre
-        self.cursor.execute('SELECT apellido FROM personas WHERE id = ?', (padre_id,))
-        apellido = self.cursor.fetchone()[0]
+        self.execute_query('SELECT apellido FROM personas WHERE id = %s', (padre_id,))
+        apellido = self.fetchone()['apellido']
 
-        # Crear persona híbrida
-        self.cursor.execute('''
+        # ----------------------------------------------------------------------
+        # CORRECCIÓN CRÍTICA: Eliminar 'nombre_completo' de la inserción
+        # ----------------------------------------------------------------------
+        query_hibrido = '''
             INSERT INTO personas (
-                nombre, apellido, nombre_completo, genero,
+                nombre, apellido, genero, 
                 especie_id, año_nacimiento, año_muerte,
                 padre_id, madre_id,
                 civilizacion_id, lugar_residencia_id,
-                fuerza, agilidad, inteligencia, resistencia, carisma
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            nombre, apellido, f"{nombre} {apellido}", genero,
+                fuerza, agilidad, inteligencia, resistencia, carisma,
+                es_hibrido
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        '''
+        # Ejecución sin el campo ni el valor de nombre_completo (16 placeholders)
+        self.execute_query(query_hibrido, (
+            nombre, apellido, genero,
             especie_dominante_id, año_nacimiento, año_nacimiento + int(longevidad_promedio),
             padre_id, madre_id,
             civ_id, lugar_id,
             stats_base['fuerza'], stats_base['agilidad'],
             stats_base['inteligencia'], stats_base['resistencia'],
-            stats_base['carisma']
+            stats_base['carisma'],
+            True # es_hibrido
         ))
 
-        persona_id = self.cursor.lastrowid
+        persona_id = self.fetchone()['id']
 
         # Verificar esterilidad
         es_esteril = random.random() < compat['prob_esterilidad']
@@ -367,49 +392,47 @@ class GeneradorHibridos:
         # Rasgos mezclados
         rasgos_padre = self.seleccionar_rasgos(esp_padre_nombre, 2)
         rasgos_madre = self.seleccionar_rasgos(esp_madre_nombre, 2)
-
-        # Habilidades híbridas
         habilidades = self.obtener_habilidades_hibridas(esp_padre_nombre, esp_madre_nombre)
 
-        # Registrar como híbrido
-        self.cursor.execute('''
+        # Registrar como híbrido (uso de %s)
+        self.execute_query('''
             INSERT INTO personas_hibridas (
                 persona_id, especie_padre_id, especie_madre_id,
                 longevidad_esperada, fertilidad_mixta,
                 rasgos_especie_padre, rasgos_especie_madre,
-                habilidades_hibridas, identificacion_cultural
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                habilidades_hibridas, identificacion_cultural, es_esteril
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (persona_id) DO NOTHING
         ''', (
             persona_id, esp_padre_id, esp_madre_id,
             int(longevidad_promedio), not es_esteril,
             json.dumps(rasgos_padre), json.dumps(rasgos_madre),
-            json.dumps(habilidades), 'hibrido'
+            json.dumps(habilidades), 'hibrido', es_esteril
         ))
 
-        self.conn.commit()
+        self.commit()
         return persona_id
 
     def calcular_stats_hibrido(self, esp1_id: int, esp2_id: int, vigor: bool) -> Dict:
         """Calcula stats promedio de un híbrido"""
-
         stats = {}
+        mod = 1.10 if vigor else 0.90
 
         for stat in ['fuerza', 'agilidad', 'inteligencia', 'resistencia', 'carisma']:
-            self.cursor.execute(f'''
-                SELECT AVG({stat})
+            self.execute_query(f'''
+                SELECT AVG({stat}) AS avg_stat
                 FROM personas
-                WHERE especie_id IN (?, ?)
+                WHERE especie_id IN (%s, %s)
                 LIMIT 100
             ''', (esp1_id, esp2_id))
 
-            promedio = self.cursor.fetchone()[0] or 50
+            promedio_row = self.fetchone()
+            
+            # CORRECCIÓN CRÍTICA: Convertir a FLOAT para evitar error con decimal.Decimal
+            promedio_decimal = promedio_row['avg_stat'] 
+            promedio = float(promedio_decimal) if promedio_decimal is not None else 50.0
 
-            # Vigor híbrido (+10%) o debilidad (-10%)
-            if vigor:
-                promedio *= 1.10
-            else:
-                promedio *= 0.90
-
+            promedio *= mod 
             stats[stat] = int(promedio)
 
         return stats
@@ -417,10 +440,7 @@ class GeneradorHibridos:
     def seleccionar_rasgos(self, especie_nombre: str, num_rasgos: int) -> List[str]:
         """Selecciona rasgos aleatorios de una especie"""
         rasgos = RASGOS_ESPECIES.get(especie_nombre, [])
-
-        if not rasgos:
-            return []
-
+        if not rasgos: return []
         num_rasgos = min(num_rasgos, len(rasgos))
         return random.sample(rasgos, num_rasgos)
 
@@ -428,7 +448,6 @@ class GeneradorHibridos:
         """Obtiene habilidades únicas del híbrido"""
         key1 = (esp1, esp2)
         key2 = (esp2, esp1)
-
         habilidades = HABILIDADES_HIBRIDAS.get(key1) or HABILIDADES_HIBRIDAS.get(key2) or []
         return habilidades
 
@@ -438,86 +457,73 @@ class GeneradorHibridos:
         print(f"SIMULANDO MATRIMONIOS INTER-ESPECIES: {año_inicio}-{año_fin}")
         print(f"{'='*70}\n")
 
-        # Obtener todas las relaciones que permiten matrimonio inter-especies
-        self.cursor.execute('''
+        self.execute_query('''
             SELECT especie_id, especie_objetivo_id, nivel_relacion
             FROM diplomacia_especies
             WHERE nivel_relacion >= 20
         ''')
 
-        relaciones = self.cursor.fetchall()
+        relaciones = self.fetchall()
         print(f"📊 {len(relaciones)} relaciones diplomáticas permiten matrimonios\n")
 
         matrimonios_creados = 0
         hibridos_nacidos = 0
 
-        # Cada 10 años, intentar crear algunos matrimonios inter-especies
         for año in range(año_inicio, año_fin, 10):
-            # Número de intentos (muy bajo, 1% de todos los matrimonios)
             num_intentos = random.randint(1, 5)
 
             for _ in range(num_intentos):
-                # Seleccionar par de especies compatible
-                if not relaciones:
-                    break
+                if not relaciones: break
 
-                esp1_id, esp2_id, _ = random.choice(relaciones)
+                rel = random.choice(relaciones)
+                esp1_id, esp2_id = rel['especie_id'], rel['especie_objetivo_id']
 
-                # Buscar solteros en edad de matrimonio
-                edad_min = 20
-                edad_max = 60
+                edad_min, edad_max = 20, 60
 
-                self.cursor.execute('''
+                # Soltero 1 (Masculino - Especie 1)
+                self.execute_query('''
                     SELECT id FROM personas
-                    WHERE especie_id = ?
+                    WHERE especie_id = %s
                     AND genero = 'masculino'
-                    AND año_nacimiento <= ? AND año_nacimiento >= ?
-                    AND año_muerte >= ?
+                    AND año_nacimiento <= %s AND año_nacimiento >= %s
+                    AND (año_muerte IS NULL OR año_muerte >= %s)
                     AND id NOT IN (SELECT persona1_id FROM matrimonios UNION SELECT persona2_id FROM matrimonios)
                     ORDER BY RANDOM()
                     LIMIT 1
                 ''', (esp1_id, año - edad_min, año - edad_max, año))
 
-                persona1 = self.cursor.fetchone()
+                persona1 = self.fetchone()
+                if not persona1: continue
 
-                if not persona1:
-                    continue
-
-                self.cursor.execute('''
+                # Soltera 2 (Femenino - Especie 2)
+                self.execute_query('''
                     SELECT id FROM personas
-                    WHERE especie_id = ?
+                    WHERE especie_id = %s
                     AND genero = 'femenino'
-                    AND año_nacimiento <= ? AND año_nacimiento >= ?
-                    AND año_muerte >= ?
+                    AND año_nacimiento <= %s AND año_nacimiento >= %s
+                    AND (año_muerte IS NULL OR año_muerte >= %s)
                     AND id NOT IN (SELECT persona1_id FROM matrimonios UNION SELECT persona2_id FROM matrimonios)
                     ORDER BY RANDOM()
                     LIMIT 1
                 ''', (esp2_id, año - edad_min, año - edad_max, año))
 
-                persona2 = self.cursor.fetchone()
+                persona2 = self.fetchone()
+                if not persona2: continue
 
-                if not persona2:
-                    continue
-
-                # Crear matrimonio
-                mat_id = self.crear_matrimonio_interespecie(persona1[0], persona2[0], año)
+                mat_id = self.crear_matrimonio_interespecie(persona1['id'], persona2['id'], año)
 
                 if mat_id:
                     matrimonios_creados += 1
-
-                    # Intentar tener hijos
-                    num_hijos = random.randint(0, 4)  # Menos hijos que normal
+                    num_hijos = random.randint(0, 4)
 
                     for i in range(num_hijos):
                         año_nac = año + random.randint(1, 10)
-
-                        if año_nac > año_fin:
-                            break
+                        if año_nac > año_fin: break
 
                         genero = random.choice(['masculino', 'femenino'])
-                        nombre = f"Híbrido{random.randint(1000, 9999)}"  # Nombre temporal
+                        nombre = f"Híbrido{random.randint(1000, 9999)}"
 
-                        if self.crear_hibrido(nombre, genero, año_nac, persona1[0], persona2[0]):
+                        if self.crear_hibrido(nombre, genero, año_nac, persona1['id'], persona2['id']):
                             hibridos_nacidos += 1
 
             if (año - año_inicio + 10) % 100 == 0:
@@ -535,15 +541,13 @@ class GeneradorHibridos:
         print("REPORTE DE HÍBRIDOS")
         print(f"{'='*70}\n")
 
-        # Total híbridos
-        self.cursor.execute('SELECT COUNT(*) FROM personas_hibridas')
-        total = self.cursor.fetchone()[0]
+        self.execute_query('SELECT COUNT(*) AS total FROM personas_hibridas')
+        total = self.fetchone()['total']
         print(f"🧬 Total híbridos: {total}\n")
 
-        # Por combinación de especies
         print("📊 HÍBRIDOS POR COMBINACIÓN:")
-        self.cursor.execute('''
-            SELECT e1.nombre, e2.nombre, COUNT(*)
+        self.execute_query('''
+            SELECT e1.nombre AS especie_1, e2.nombre AS especie_2, COUNT(*) AS count
             FROM personas_hibridas ph
             JOIN especies e1 ON ph.especie_padre_id = e1.id
             JOIN especies e2 ON ph.especie_madre_id = e2.id
@@ -551,23 +555,21 @@ class GeneradorHibridos:
             ORDER BY COUNT(*) DESC
         ''')
 
-        for esp1, esp2, count in self.cursor.fetchall():
-            print(f"  {esp1:20s} × {esp2:20s}: {count:4d}")
+        for row in self.fetchall():
+            print(f"  {row['especie_1']:20s} × {row['especie_2']:20s}: {row['count']:4d}")
 
 def main():
-    """Función principal"""
+    """Función principal (para ejecución directa del módulo)"""
     print("="*70)
-    print("SISTEMA DE MATRIMONIOS INTER-ESPECIES E HÍBRIDOS")
+    print("SISTEMA DE MATRIMONIOS INTER-ESPECIES E HÍBRIDOS (STANDALONE)")
     print("Portales del Quinto Sol")
     print("="*70)
 
-    generador = GeneradorHibridos()
-
-    # Aplicar schema
-    generador.aplicar_schema()
-
-    # Poblar compatibilidad
-    generador.poblar_compatibilidad()
+    try:
+        generador = GeneradorHibridos()
+    except Exception as e:
+        print(f"❌ Error al inicializar GeneradorHibridos: {e}")
+        return
 
     # Menú
     print("\nOpciones:")
@@ -578,24 +580,16 @@ def main():
     opcion = input("\nSelecciona opción (1-3): ").strip()
 
     if opcion == '1':
-        confirm = input("\n⚠️  ¿Simular matrimonios inter-especies? (s/n): ").strip().lower()
-        if confirm == 's':
-            generador.simular_matrimonios_interespecie()
-            generador.generar_reporte()
+        generador.simular_matrimonios_interespecie()
+        generador.generar_reporte()
     elif opcion == '2':
-        print(f"\n{'='*70}")
-        print("COMPATIBILIDAD ENTRE ESPECIES")
-        print(f"{'='*70}\n")
+        print("\nCOMPATIBILIDAD BASE:")
         for (esp1, esp2), config in COMPATIBILIDAD_BASE.items():
-            print(f"🧬 {esp1} × {esp2}")
-            print(f"   Concepción: {config['prob_concepcion']*100:.0f}%")
-            print(f"   Aceptación social: {config['aceptacion']}/100")
-            print(f"   Vigor: {'Sí' if config['vigor'] else 'No'}")
-            print(f"   Tabú: {'Sí' if config['taboo'] else 'No'}\n")
+            print(f"  {esp1} x {esp2}: Concebible={config['reproducirse']}, Aceptación={config['aceptacion']}, Vigor={config['vigor']}")
     elif opcion == '3':
         generador.generar_reporte()
 
-    generador.conn.close()
+    generador.close()
     print("\n✅ Proceso completado")
 
 if __name__ == '__main__':
